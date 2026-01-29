@@ -699,6 +699,17 @@ async function handleWsMessage(event, env, ctx) {
   }
   const prep = preparePayload(payload);
   if (!prep.ok) return;
+  try {
+    event.target.send(JSON.stringify({
+      ack: 1,
+      id: prep.id,
+      shot_uid: prep.shotUid,
+      shot_index: prep.shotIndex,
+      server_ts: Date.now()
+    }));
+  } catch (e) {
+    // ignore ack errors
+  }
   if (env.SHOT_HUB) {
     await broadcastShot(prep.hubMessage, env);
   }
@@ -772,6 +783,7 @@ function preparePayload(payload) {
     shotMs,
     deviceId,
     shotIndex,
+    shotUid,
     payloadJson: JSON.stringify(payload),
     hubMessage,
   };
