@@ -50,12 +50,9 @@ export default {
 
       const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
       const analysisButtonHtml = isLocal ? "" : `<div class="actions">
-            <button class="btn" id="analysisBtn">See detailed analysis</button>
+            <button class="btn" id="analysisBtn">See Detailed Analysis</button>
           </div>`;
       const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
-            <div class="actions">
-              <button class="btn" id="backBtn">Back to main</button>
-            </div>
             <div class="analysis-title">Detailed analysis</div>
             <div class="chart-wrap">
               <canvas id="chart"></canvas>
@@ -123,7 +120,6 @@ export default {
           const mainView = document.getElementById('mainView');
           const analysisView = document.getElementById('analysisView');
           const analysisBtn = document.getElementById('analysisBtn');
-          const backBtn = document.getElementById('backBtn');
           const chartCanvas = document.getElementById('chart');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
           let chartPoints = [];
@@ -139,18 +135,28 @@ export default {
           function showMain() {
             if (mainView) mainView.classList.remove('hidden');
             if (analysisView) analysisView.classList.add('hidden');
+            if (analysisBtn) analysisBtn.textContent = "See Detailed Analysis";
           }
 
           function showAnalysis() {
             if (!ENABLE_ANALYSIS) return;
             if (mainView) mainView.classList.add('hidden');
             if (analysisView) analysisView.classList.remove('hidden');
+            if (analysisBtn) analysisBtn.textContent = "Back to main";
             resizeChart();
             scheduleChart();
           }
 
-          if (analysisBtn) analysisBtn.addEventListener('click', showAnalysis);
-          if (backBtn) backBtn.addEventListener('click', showMain);
+          function toggleAnalysis() {
+            if (!ENABLE_ANALYSIS) return;
+            if (analysisView && !analysisView.classList.contains('hidden')) {
+              showMain();
+            } else {
+              showAnalysis();
+            }
+          }
+
+          if (analysisBtn) analysisBtn.addEventListener('click', toggleAnalysis);
 
           function updateStats(brew, avg) {
             const hasBrew = Number.isFinite(brew);
@@ -358,21 +364,18 @@ export default {
               return;
             }
 
-            let minX = chartPoints[0].x;
+            let minX = 1;
             let maxX = chartPoints[0].x;
-            let minY = chartPoints[0].y;
             let maxY = chartPoints[0].y;
             for (const p of chartPoints) {
-              if (p.x < minX) minX = p.x;
               if (p.x > maxX) maxX = p.x;
-              if (p.y < minY) minY = p.y;
               if (p.y > maxY) maxY = p.y;
             }
-            if (minX === maxX) { minX -= 1; maxX += 1; }
-            if (minY === maxY) { minY = Math.max(0, minY - 0.5); maxY += 0.5; }
-            const yPad = 0.2;
-            minY = Math.max(0, minY - yPad);
-            maxY = maxY + yPad;
+            if (minX === maxX) { maxX = minX + 1; }
+            const yStep = 5;
+            let yMax = Math.ceil(maxY / yStep) * yStep;
+            if (yMax < yStep) yMax = yStep;
+            const yMin = 0;
 
             const padL = 50;
             const padR = 16;
@@ -385,18 +388,29 @@ export default {
               return padL + ((x - minX) / (maxX - minX)) * plotW;
             }
             function yFor(y) {
-              return padT + (1 - (y - minY) / (maxY - minY)) * plotH;
+              return padT + (1 - (y - yMin) / (yMax - yMin)) * plotH;
             }
 
             // grid
             chartCtx.strokeStyle = "#1f2a33";
             chartCtx.lineWidth = 1;
-            const gridY = 4;
+            const gridY = Math.round((yMax - yMin) / yStep);
             for (let i = 0; i <= gridY; i++) {
-              const y = padT + (plotH * i) / gridY;
+              const yVal = yMin + i * yStep;
+              const y = yFor(yVal);
               chartCtx.beginPath();
               chartCtx.moveTo(padL, y);
               chartCtx.lineTo(padL + plotW, y);
+              chartCtx.stroke();
+            }
+
+            // x grid (step 1)
+            chartCtx.strokeStyle = "#151d24";
+            for (let xVal = minX; xVal <= maxX; xVal += 1) {
+              const x = xFor(xVal);
+              chartCtx.beginPath();
+              chartCtx.moveTo(x, padT);
+              chartCtx.lineTo(x, padT + plotH);
               chartCtx.stroke();
             }
 
@@ -434,10 +448,15 @@ export default {
 
             // axis min/max
             chartCtx.fillStyle = "#7a8a99";
-            chartCtx.fillText(String(minX), padL, h - 22);
-            chartCtx.fillText(String(maxX), padL + plotW - 16, h - 22);
-            chartCtx.fillText(minY.toFixed(2), 6, padT + plotH);
-            chartCtx.fillText(maxY.toFixed(2), 6, padT + 10);
+            for (let xVal = minX; xVal <= maxX; xVal += 1) {
+              const x = xFor(xVal);
+              chartCtx.fillText(String(xVal), x - 4, h - 22);
+            }
+            for (let i = 0; i <= gridY; i++) {
+              const yVal = yMin + i * yStep;
+              const y = yFor(yVal);
+              chartCtx.fillText(String(yVal), 6, y + 4);
+            }
           }
 
           function connectWs() {
