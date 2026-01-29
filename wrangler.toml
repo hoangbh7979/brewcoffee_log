@@ -2,3 +2,8 @@
 name = 'logbrew'
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shotlog"
+database_id = "1a90d333-1225-47b4-9ec0-bba6070bf6fb"
