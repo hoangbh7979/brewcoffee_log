@@ -644,10 +644,38 @@ async function handleWsMessage(event, env, ctx) {
   } catch {
     return;
   }
-  await ingestPayload(payload, env, ctx);
+  const prep = preparePayload(payload);
+  if (!prep.ok) return;
+  if (env.SHOT_HUB) {
+    await broadcastShot(prep.hubMessage, env);
+  }
+  if (env.DB && ctx) {
+    ctx.waitUntil(insertShot(prep, env));
+  } else if (env.DB) {
+    await insertShot(prep, env);
+  }
 }
 
 async function ingestPayload(payload, env, ctx) {
+  const prep = preparePayload(payload);
+  if (!prep.ok) return prep;
+  if (env.SHOT_HUB && ctx) {
+    ctx.waitUntil(broadcastShot(prep.hubMessage, env));
+  } else if (env.SHOT_HUB) {
+    await broadcastShot(prep.hubMessage, env);
+  }
+  if (env.DB && ctx) {
+    ctx.waitUntil(insertShot(prep, env));
+    return { ok: true, id: prep.id, created_at: prep.createdAtMs };
+  }
+  if (!env.DB) {
+    return { ok: false, error: "DB not bound", status: 500 };
+  }
+  await insertShot(prep, env);
+  return { ok: true, id: prep.id, created_at: prep.createdAtMs };
+}
+
+function preparePayload(payload) {
   const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
   const shotEpochSec = num(payload.epoch ?? payload.ts);
   const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
@@ -684,32 +712,37 @@ async function ingestPayload(payload, env, ctx) {
     avg_ms: avgMs,
   });
 
-  if (env.SHOT_HUB && ctx) {
-    const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
-    ctx.waitUntil(
-      hub.fetch("https://hub/broadcast", {
-        method: "POST",
-        body: hubMessage,
-      })
-    );
-  }
-
-  if (!env.DB) {
-    return { ok: false, error: "DB not bound", status: 500 };
-  }
-
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
-  ).bind(
+  return {
+    ok: true,
     id,
     createdAtMs,
     shotMs,
     deviceId,
     shotIndex,
-    JSON.stringify(payload)
-  ).run();
+    payloadJson: JSON.stringify(payload),
+    hubMessage,
+  };
+}
 
-  return { ok: true, id, created_at: createdAtMs };
+async function broadcastShot(hubMessage, env) {
+  const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
+  await hub.fetch("https://hub/broadcast", {
+    method: "POST",
+    body: hubMessage,
+  });
+}
+
+async function insertShot(prep, env) {
+  return env.DB.prepare(
+    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(
+    prep.id,
+    prep.createdAtMs,
+    prep.shotMs,
+    prep.deviceId,
+    prep.shotIndex,
+    prep.payloadJson
+  ).run();
 }
 
 function isAllowedOrigin(origin, allowedOrigin) {
