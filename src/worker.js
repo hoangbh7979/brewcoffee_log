@@ -14,7 +14,7 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/") {
       if (!env.DB) {
-        return new Response("DB not bound", { status: 500 });
+        return new Response("DB not found", { status: 500 });
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
@@ -54,7 +54,7 @@ export default {
       </head>
       <body>
         <div class="wrap">
-          <header>RECORD BREW LOG</header>
+          <header>BREW RECORD</header>
           <table>
             <thead>
               <tr><th>Brew number</th><th>Time</th><th>Shot</th><th>Device</th></tr>
