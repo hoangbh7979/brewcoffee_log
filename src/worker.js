@@ -481,45 +481,75 @@ export default {
             }
           }
 
-                    function connectWs() {
-                      setStatus("Connecting...");
-                      const proto = location.protocol === "https:" ? "wss" : "ws";
-                      const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
-                      window._shotWs = ws;
-                      if (window._shotWsPing) {
-                        clearInterval(window._shotWsPing);
-                        window._shotWsPing = null;
-                      }
-                      ws.onopen = () => {
-                        setStatus("Live");
-                        window._shotWsRetry = 300;
-                        window._shotWsPing = setInterval(() => {
-                          try { ws.send("ping"); } catch (e) {}
-                        }, 10000);
-                      };
-                      ws.onmessage = (ev) => {
-                        try {
-                          if (ev.data === "pong") return;
-                          const data = JSON.parse(ev.data);
-                          if (data) prependRow(data);
-                        } catch (e) {
-                          // ignore bad payloads
-                        }
-                      };
-                      ws.onclose = () => {
-                        setStatus("Reconnecting...");
-                        if (window._shotWsPing) {
-                          clearInterval(window._shotWsPing);
-                          window._shotWsPing = null;
-                        }
-                        const delay = window._shotWsRetry || 300;
-                        setTimeout(connectWs, delay);
-                        window._shotWsRetry = Math.min((window._shotWsRetry || 300) * 2, 2000);
-                      };
-                      ws.onerror = () => {
-                        ws.close();
-                      };
-                    }
+                    
+                              let wsFastPoll = null;
+                              let wsRetryDelay = 300;
+
+                              async function fastPollLatest() {
+                                try {
+                                  const res = await fetch('/api/shots?limit=5', { cache: 'no-store' });
+                                  const json = await res.json();
+                                  const data = json.data || [];
+                                  for (let i = data.length - 1; i >= 0; i--) {
+                                    prependRow(data[i]);
+                                  }
+                                } catch (e) {
+                                  // ignore
+                                }
+                              }
+
+                              function startFastPoll() {
+                                if (wsFastPoll) return;
+                                wsFastPoll = setInterval(fastPollLatest, 1000);
+                              }
+
+                              function stopFastPoll() {
+                                if (!wsFastPoll) return;
+                                clearInterval(wsFastPoll);
+                                wsFastPoll = null;
+                              }
+
+          function connectWs() {
+            setStatus("Connecting...");
+            const proto = location.protocol === "https:" ? "wss" : "ws";
+            const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
+            window._shotWs = ws;
+            stopFastPoll();
+            ws.onopen = () => {
+              setStatus("Live");
+              wsRetryDelay = 300;
+              if (window._shotWsPing) {
+                clearInterval(window._shotWsPing);
+                window._shotWsPing = null;
+              }
+              window._shotWsPing = setInterval(() => {
+                try { ws.send("ping"); } catch (e) {}
+              }, 10000);
+            };
+            ws.onmessage = (ev) => {
+              try {
+                if (ev.data === "pong") return;
+                const data = JSON.parse(ev.data);
+                if (data) prependRow(data);
+              } catch (e) {
+                // ignore bad payloads
+              }
+            };
+            ws.onclose = () => {
+              setStatus("Reconnecting...");
+              if (window._shotWsPing) {
+                clearInterval(window._shotWsPing);
+                window._shotWsPing = null;
+              }
+              startFastPoll();
+              const delay = wsRetryDelay || 300;
+              setTimeout(connectWs, delay);
+              wsRetryDelay = Math.min((wsRetryDelay || 300) * 2, 2000);
+            };
+            ws.onerror = () => {
+              ws.close();
+            };
+          }
 
           loadShots();
           connectWs();
