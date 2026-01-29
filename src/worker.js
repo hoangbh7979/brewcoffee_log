@@ -551,8 +551,7 @@ export default {
           shotIndex,
           JSON.stringify(payload)
         ).run();
-        const inserted = !result || !result.meta || result.meta.changes > 0;
-        (void)inserted;
+        // inserted count is not needed because we broadcast optimistically
       } else {
         return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
       }
