@@ -734,7 +734,6 @@ function preparePayload(payload) {
   const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
   const deviceId = payload.device_id ? String(payload.device_id) : null;
   const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
-  const shotUid = num(payload.shot_uid ?? payload.shotUid ?? payload.uid);
   const bootId = num(payload.boot_id ?? payload.bootId ?? payload.boot);
   const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
   const avgMs = num(payload.avg_ms ?? payload.avgMs);
@@ -747,8 +746,6 @@ function preparePayload(payload) {
   if (!id) {
     if (deviceId && Number.isFinite(bootId) && Number.isFinite(shotIndex)) {
       id = `${deviceId}:${bootId}:${shotIndex}`;
-    } else if (deviceId && Number.isFinite(shotUid)) {
-      id = `${deviceId}:${shotUid}`;
     } else if (deviceId && Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
       id = `${deviceId}:${shotIndex}:${shotEpochSec}`;
     } else {
