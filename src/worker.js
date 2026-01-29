@@ -234,7 +234,9 @@ export default {
             chartPoints = trimmed;
             chartIds = new Set(trimmed.map(p => p.id));
             chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
-            scheduleChart();
+            if (analysisView && !analysisView.classList.contains('hidden')) {
+              scheduleChart();
+            }
           }
 
           function addChartPoint(r) {
@@ -256,7 +258,9 @@ export default {
               removed.forEach(p => chartIds.delete(p.id));
             }
             if (pt.x > chartMaxIndex) chartMaxIndex = pt.x;
-            scheduleChart();
+            if (analysisView && !analysisView.classList.contains('hidden')) {
+              scheduleChart();
+            }
           }
 
           function prependRow(r) {
@@ -517,6 +521,25 @@ export default {
         }
       }
 
+      const hubMessage = JSON.stringify({
+        id,
+        created_at: createdAtMs,
+        shot_ms: shotMs,
+        shot_index: shotIndex,
+        brew_counter: brewCounter,
+        avg_ms: avgMs,
+      });
+
+      if (env.SHOT_HUB && ctx) {
+        const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
+        ctx.waitUntil(
+          hub.fetch("https://hub/broadcast", {
+            method: "POST",
+            body: hubMessage,
+          })
+        );
+      }
+
       if (env.DB) {
         const result = await env.DB.prepare(
           "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
@@ -529,23 +552,7 @@ export default {
           JSON.stringify(payload)
         ).run();
         const inserted = !result || !result.meta || result.meta.changes > 0;
-        if (inserted && env.SHOT_HUB && ctx) {
-          const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
-          const msg = JSON.stringify({
-            id,
-            created_at: createdAtMs,
-            shot_ms: shotMs,
-            shot_index: shotIndex,
-            brew_counter: brewCounter,
-            avg_ms: avgMs,
-          });
-          ctx.waitUntil(
-            hub.fetch("https://hub/broadcast", {
-              method: "POST",
-              body: msg,
-            })
-          );
-        }
+        (void)inserted;
       } else {
         return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
       }
