@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
-    const allowedOrigin = "https://shotlog.barista-homelife.cloud";
+    const allowedOrigin = "https://shotlog.barista-homelife.cloud"; //link
 
     // CORS preflight
     if (request.method === "OPTIONS") {

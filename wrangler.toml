@@ -1,3 +1,4 @@
-name = "brewcoffee_log"
+# wrangler.toml
+name = 'logbrew'
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
