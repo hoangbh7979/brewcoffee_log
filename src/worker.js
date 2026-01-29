@@ -68,7 +68,7 @@ export default {
         <title>Shot Log</title>
         <style>
           body { font-family: Arial, sans-serif; background:#0b0b0b; color:#eaeaea; margin:0; }
-          header { padding:16px 20px; font-size:20px; font-weight:600; }
+          header { padding:16px 20px; font-size:20px; font-weight:600; text-align:center; }
           table { width:100%; border-collapse: collapse; }
           th, td { padding:10px 12px; border-bottom:1px solid #222; text-align:left; }
           th { color:#7fdcff; font-weight:600; }
@@ -90,7 +90,7 @@ export default {
       </head>
       <body>
         <div class="wrap">
-          <header>BREW RECORD</header>
+          <header>BREW RECORDED - CASADIO UNDICI</header>
           <div class="sub" id="status">Connecting...</div>
           <div class="stats">
             <div id="brewCounter">Brew counter: --</div>
