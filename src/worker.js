@@ -546,7 +546,11 @@ export default {
       }
       return new Response(null, {
         status: 204,
-        headers: corsHeaders(origin, allowedOrigin),
+        headers: {
+          ...corsHeaders(origin, allowedOrigin),
+          "Connection": "keep-alive",
+          "Keep-Alive": "timeout=30"
+        },
       });
     }
 
