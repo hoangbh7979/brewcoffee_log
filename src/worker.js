@@ -484,7 +484,7 @@ export default {
                     function connectWs() {
                       setStatus("Connecting...");
                       const proto = location.protocol === "https:" ? "wss" : "ws";
-                      const ws = new WebSocket(`${proto}://${location.host}/api/ws`);
+                      const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
                       window._shotWs = ws;
                       if (window._shotWsPing) {
                         clearInterval(window._shotWsPing);
