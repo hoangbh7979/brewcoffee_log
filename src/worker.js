@@ -48,6 +48,21 @@ export default {
         </tr>`;
       }).join("");
 
+      const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      const analysisButtonHtml = isLocal ? "" : `<div class="actions">
+            <button class="btn" id="analysisBtn">See detailed analysis</button>
+          </div>`;
+      const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
+            <div class="actions">
+              <button class="btn" id="backBtn">Back to main</button>
+            </div>
+            <div class="analysis-title">Detailed analysis</div>
+            <div class="chart-wrap">
+              <canvas id="chart"></canvas>
+              <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
+            </div>
+          </div>`;
+
       const html = `<!doctype html>
       <html>
       <head>
@@ -63,7 +78,17 @@ export default {
           tr:hover { background:#111; }
           .wrap { max-width:900px; margin:0 auto; padding:0 16px 24px; }
           .sub { color:#888; font-size:13px; margin-bottom:8px; }
-          .stats { color:#cfcfcf; font-size:14px; display:flex; gap:24px; flex-wrap:wrap; margin-bottom:12px; }
+          .stats { color:#cfcfcf; font-size:14px; display:flex; gap:24px; flex-wrap:wrap; margin-bottom:10px; }
+          .actions { display:flex; gap:10px; margin:10px 0 14px; }
+          .btn { background:#141a1f; color:#cfefff; border:1px solid #243040; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
+          .btn:hover { background:#1c2731; }
+          .btn:active { transform: translateY(1px); }
+          .panel { margin-top:8px; }
+          .hidden { display:none; }
+          .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
+          #chart { width:100%; height:320px; display:block; }
+          .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
+          .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
         </style>
       </head>
       <body>
@@ -74,26 +99,57 @@ export default {
             <div id="brewCounter">Brew counter: --</div>
             <div id="avgBrew">Avg Brew Time: --.--s</div>
           </div>
-          <table>
-            <thead>
-              <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
-            </thead>
-            <tbody id="shots">
-              ${rows || `<tr><td colspan="3">No data</td></tr>`}
-            </tbody>
-          </table>
+          ${analysisButtonHtml}
+          <div id="mainView" class="panel">
+            <table>
+              <thead>
+                <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
+              </thead>
+              <tbody id="shots">
+                ${rows || `<tr><td colspan="3">No data</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+          ${analysisViewHtml}
         </div>
 
         <script>
           const MAX_ROWS = 300;
+          const MAX_POINTS = 200;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
           const avgEl = document.getElementById('avgBrew');
+          const mainView = document.getElementById('mainView');
+          const analysisView = document.getElementById('analysisView');
+          const analysisBtn = document.getElementById('analysisBtn');
+          const backBtn = document.getElementById('backBtn');
+          const chartCanvas = document.getElementById('chart');
+          let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
+          let chartPoints = [];
+          let chartIds = new Set();
+          let chartScheduled = false;
+          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
 
           function setStatus(text) {
             if (statusEl) statusEl.textContent = text;
           }
+
+          function showMain() {
+            if (mainView) mainView.classList.remove('hidden');
+            if (analysisView) analysisView.classList.add('hidden');
+          }
+
+          function showAnalysis() {
+            if (!ENABLE_ANALYSIS) return;
+            if (mainView) mainView.classList.add('hidden');
+            if (analysisView) analysisView.classList.remove('hidden');
+            resizeChart();
+            scheduleChart();
+          }
+
+          if (analysisBtn) analysisBtn.addEventListener('click', showAnalysis);
+          if (backBtn) backBtn.addEventListener('click', showMain);
 
           function updateStats(brew, avg) {
             const hasBrew = Number.isFinite(brew);
@@ -139,6 +195,47 @@ export default {
             }
           }
 
+          function toPoint(r) {
+            if (!r) return null;
+            const x = Number(r.shot_index);
+            const y = Number(r.shot_ms);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+            const ySec = Math.floor(y / 10) / 100;
+            return { id: r.id || ("" + x + ":" + y), x, y: ySec };
+          }
+
+          function setChartFromData(data) {
+            if (!ENABLE_ANALYSIS) return;
+            const pts = [];
+            const ids = new Set();
+            data.forEach(r => {
+              const pt = toPoint(r);
+              if (!pt || ids.has(pt.id)) return;
+              ids.add(pt.id);
+              pts.push(pt);
+            });
+            pts.sort((a, b) => a.x - b.x);
+            const trimmed = pts.length > MAX_POINTS ? pts.slice(pts.length - MAX_POINTS) : pts;
+            chartPoints = trimmed;
+            chartIds = new Set(trimmed.map(p => p.id));
+            scheduleChart();
+          }
+
+          function addChartPoint(r) {
+            if (!ENABLE_ANALYSIS) return;
+            const pt = toPoint(r);
+            if (!pt || chartIds.has(pt.id)) return;
+            chartIds.add(pt.id);
+            chartPoints.push(pt);
+            chartPoints.sort((a, b) => a.x - b.x);
+            if (chartPoints.length > MAX_POINTS) {
+              const excess = chartPoints.length - MAX_POINTS;
+              const removed = chartPoints.splice(0, excess);
+              removed.forEach(p => chartIds.delete(p.id));
+            }
+            scheduleChart();
+          }
+
           function prependRow(r) {
             const tbody = document.getElementById('shots');
             if (!tbody) return;
@@ -147,6 +244,7 @@ export default {
             tbody.insertAdjacentHTML('afterbegin', renderRow(r));
             trimRows(tbody);
             extractStats(r);
+            addChartPoint(r);
           }
 
           async function loadShots() {
@@ -157,6 +255,8 @@ export default {
               const data = json.data || [];
               if (data.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3">No data</td></tr>';
+                updateStats(null, null);
+                setChartFromData([]);
                 return;
               }
               seen.clear();
@@ -164,6 +264,7 @@ export default {
               tbody.innerHTML = data.map(r => renderRow(r)).join('');
               trimRows(tbody);
               extractStats(data[0]);
+              setChartFromData(data);
             } catch (e) {
               // ignore fetch errors (offline etc.)
             }
@@ -188,6 +289,128 @@ export default {
               .replace(/&/g,"&amp;")
               .replace(/</g,"&lt;")
               .replace(/>/g,"&gt;");
+          }
+
+          function scheduleChart() {
+            if (!ENABLE_ANALYSIS) return;
+            if (!chartCanvas || !chartCtx) return;
+            if (chartScheduled) return;
+            chartScheduled = true;
+            requestAnimationFrame(() => {
+              chartScheduled = false;
+              drawChart();
+            });
+          }
+
+          function resizeChart() {
+            if (!ENABLE_ANALYSIS) return;
+            if (!chartCanvas || !chartCtx) return;
+            const dpr = window.devicePixelRatio || 1;
+            const w = chartCanvas.clientWidth || 0;
+            const h = chartCanvas.clientHeight || 0;
+            if (w === 0 || h === 0) return;
+            chartCanvas.width = Math.floor(w * dpr);
+            chartCanvas.height = Math.floor(h * dpr);
+            chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+
+          function drawChart() {
+            if (!ENABLE_ANALYSIS) return;
+            if (!chartCanvas || !chartCtx) return;
+            const w = chartCanvas.clientWidth || 0;
+            const h = chartCanvas.clientHeight || 0;
+            if (w === 0 || h === 0) return;
+            chartCtx.clearRect(0, 0, w, h);
+            chartCtx.fillStyle = "#0f1113";
+            chartCtx.fillRect(0, 0, w, h);
+
+            if (chartPoints.length === 0) {
+              chartCtx.fillStyle = "#7a8a99";
+              chartCtx.font = "12px Arial, sans-serif";
+              chartCtx.fillText("No data yet", 12, 20);
+              return;
+            }
+
+            let minX = chartPoints[0].x;
+            let maxX = chartPoints[0].x;
+            let minY = chartPoints[0].y;
+            let maxY = chartPoints[0].y;
+            for (const p of chartPoints) {
+              if (p.x < minX) minX = p.x;
+              if (p.x > maxX) maxX = p.x;
+              if (p.y < minY) minY = p.y;
+              if (p.y > maxY) maxY = p.y;
+            }
+            if (minX === maxX) { minX -= 1; maxX += 1; }
+            if (minY === maxY) { minY = Math.max(0, minY - 0.5); maxY += 0.5; }
+            const yPad = 0.2;
+            minY = Math.max(0, minY - yPad);
+            maxY = maxY + yPad;
+
+            const padL = 50;
+            const padR = 16;
+            const padT = 16;
+            const padB = 32;
+            const plotW = w - padL - padR;
+            const plotH = h - padT - padB;
+
+            function xFor(x) {
+              return padL + ((x - minX) / (maxX - minX)) * plotW;
+            }
+            function yFor(y) {
+              return padT + (1 - (y - minY) / (maxY - minY)) * plotH;
+            }
+
+            // grid
+            chartCtx.strokeStyle = "#1f2a33";
+            chartCtx.lineWidth = 1;
+            const gridY = 4;
+            for (let i = 0; i <= gridY; i++) {
+              const y = padT + (plotH * i) / gridY;
+              chartCtx.beginPath();
+              chartCtx.moveTo(padL, y);
+              chartCtx.lineTo(padL + plotW, y);
+              chartCtx.stroke();
+            }
+
+            // line
+            chartCtx.strokeStyle = "#7fdcff";
+            chartCtx.lineWidth = 2;
+            chartCtx.beginPath();
+            chartPoints.forEach((p, i) => {
+              const x = xFor(p.x);
+              const y = yFor(p.y);
+              if (i === 0) chartCtx.moveTo(x, y);
+              else chartCtx.lineTo(x, y);
+            });
+            chartCtx.stroke();
+
+            // points
+            chartCtx.fillStyle = "#7fdcff";
+            for (const p of chartPoints) {
+              const x = xFor(p.x);
+              const y = yFor(p.y);
+              chartCtx.beginPath();
+              chartCtx.arc(x, y, 2.5, 0, Math.PI * 2);
+              chartCtx.fill();
+            }
+
+            // labels
+            chartCtx.fillStyle = "#9aa7b3";
+            chartCtx.font = "11px Arial, sans-serif";
+            chartCtx.fillText("Brew number", padL, h - 10);
+            chartCtx.save();
+            chartCtx.translate(12, padT + plotH / 2);
+            chartCtx.rotate(-Math.PI / 2);
+            chartCtx.fillText("Seconds", 0, 0);
+            chartCtx.restore();
+
+            // axis min/max
+            chartCtx.fillStyle = "#7a8a99";
+            chartCtx.fillText(String(minX), padL, h - 22);
+            chartCtx.fillText(String(maxX), padL + plotW - 16, h - 22);
+            chartCtx.fillText(minY.toFixed(2), 6, padT + plotH);
+            chartCtx.fillText(maxY.toFixed(2), 6, padT + 10);
           }
 
           function connectWs() {
@@ -215,6 +438,11 @@ export default {
           loadShots();
           connectWs();
           setInterval(loadShots, 30000);
+          window.addEventListener('resize', () => {
+            if (!ENABLE_ANALYSIS) return;
+            resizeChart();
+            scheduleChart();
+          });
         </script>
       </body>
       </html>`;
