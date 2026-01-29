@@ -540,9 +540,14 @@ export default {
         return json({ ok: false, error: "invalid_json" }, origin, allowedOrigin, 400);
       }
 
-      const result = await ingestPayload(payload, env, ctx);
-      if (!result.ok) {
-        return json({ ok: false, error: result.error || "ingest_failed" }, origin, allowedOrigin, result.status || 500);
+      const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
+      if (!Number.isFinite(shotMs)) {
+        return json({ ok: false, error: "invalid_shot_ms" }, origin, allowedOrigin, 400);
+      }
+      if (ctx) {
+        ctx.waitUntil(ingestPayload(payload, env, ctx));
+      } else {
+        await ingestPayload(payload, env, ctx);
       }
       return new Response(null, {
         status: 204,
