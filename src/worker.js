@@ -129,6 +129,7 @@ export default {
           let chartPoints = [];
           let chartIds = new Set();
           let chartScheduled = false;
+          let chartMaxIndex = 0;
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
 
           function setStatus(text) {
@@ -204,11 +205,25 @@ export default {
             return { id: r.id || ("" + x + ":" + y), x, y: ySec };
           }
 
+          function resetChart() {
+            chartPoints = [];
+            chartIds = new Set();
+            chartMaxIndex = 0;
+            scheduleChart();
+          }
+
+          function filterToLatestSession(data) {
+            const idx = data.findIndex(r => Number(r.shot_index) === 1);
+            if (idx >= 0) return data.slice(0, idx + 1);
+            return data;
+          }
+
           function setChartFromData(data) {
             if (!ENABLE_ANALYSIS) return;
+            const sessionData = filterToLatestSession(data);
             const pts = [];
             const ids = new Set();
-            data.forEach(r => {
+            sessionData.forEach(r => {
               const pt = toPoint(r);
               if (!pt || ids.has(pt.id)) return;
               ids.add(pt.id);
@@ -218,11 +233,18 @@ export default {
             const trimmed = pts.length > MAX_POINTS ? pts.slice(pts.length - MAX_POINTS) : pts;
             chartPoints = trimmed;
             chartIds = new Set(trimmed.map(p => p.id));
+            chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
             scheduleChart();
           }
 
           function addChartPoint(r) {
             if (!ENABLE_ANALYSIS) return;
+            const idx = Number(r && r.shot_index);
+            if (Number.isFinite(idx)) {
+              if (idx === 1 || (chartMaxIndex > 0 && idx < chartMaxIndex)) {
+                resetChart();
+              }
+            }
             const pt = toPoint(r);
             if (!pt || chartIds.has(pt.id)) return;
             chartIds.add(pt.id);
@@ -233,6 +255,7 @@ export default {
               const removed = chartPoints.splice(0, excess);
               removed.forEach(p => chartIds.delete(p.id));
             }
+            if (pt.x > chartMaxIndex) chartMaxIndex = pt.x;
             scheduleChart();
           }
 
