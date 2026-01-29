@@ -62,13 +62,18 @@ export default {
           th { color:#7fdcff; font-weight:600; }
           tr:hover { background:#111; }
           .wrap { max-width:900px; margin:0 auto; padding:0 16px 24px; }
-          .sub { color:#888; font-size:13px; margin-bottom:12px; }
+          .sub { color:#888; font-size:13px; margin-bottom:8px; }
+          .stats { color:#cfcfcf; font-size:14px; display:flex; gap:24px; flex-wrap:wrap; margin-bottom:12px; }
         </style>
       </head>
       <body>
         <div class="wrap">
           <header>BREW RECORD</header>
           <div class="sub" id="status">Connecting...</div>
+          <div class="stats">
+            <div id="brewCounter">Brew counter: --</div>
+            <div id="avgBrew">Avg Brew Time: --.--s</div>
+          </div>
           <table>
             <thead>
               <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
@@ -83,9 +88,41 @@ export default {
           const MAX_ROWS = 300;
           const seen = new Set();
           const statusEl = document.getElementById('status');
+          const brewEl = document.getElementById('brewCounter');
+          const avgEl = document.getElementById('avgBrew');
 
           function setStatus(text) {
             if (statusEl) statusEl.textContent = text;
+          }
+
+          function updateStats(brew, avg) {
+            const hasBrew = Number.isFinite(brew);
+            if (brewEl) {
+              brewEl.textContent = "Brew counter: " + (hasBrew ? Math.trunc(brew) : "--");
+            }
+            if (avgEl) {
+              const showAvg = hasBrew && brew > 0 && Number.isFinite(avg);
+              avgEl.textContent = "Avg Brew Time: " + (showAvg ? formatShot(avg) : "--.--s");
+            }
+          }
+
+          function extractStats(r) {
+            let brew = null;
+            let avg = null;
+            if (r) {
+              if (Number.isFinite(r.brew_counter)) brew = r.brew_counter;
+              if (Number.isFinite(r.avg_ms)) avg = r.avg_ms;
+              if ((brew === null || avg === null) && r.payload) {
+                try {
+                  const p = typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload;
+                  if (brew === null && Number.isFinite(p.brew_counter)) brew = p.brew_counter;
+                  if (avg === null && Number.isFinite(p.avg_ms)) avg = p.avg_ms;
+                } catch (e) {
+                  // ignore invalid payload
+                }
+              }
+            }
+            updateStats(brew, avg);
           }
 
           function renderRow(r) {
@@ -109,6 +146,7 @@ export default {
             if (r && r.id) seen.add(r.id);
             tbody.insertAdjacentHTML('afterbegin', renderRow(r));
             trimRows(tbody);
+            extractStats(r);
           }
 
           async function loadShots() {
@@ -125,6 +163,7 @@ export default {
               data.forEach(r => { if (r && r.id) seen.add(r.id); });
               tbody.innerHTML = data.map(r => renderRow(r)).join('');
               trimRows(tbody);
+              extractStats(data[0]);
             } catch (e) {
               // ignore fetch errors (offline etc.)
             }
@@ -212,6 +251,8 @@ export default {
       const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
       const shotUid = num(payload.shot_uid ?? payload.shotUid ?? payload.uid);
       const bootId = num(payload.boot_id ?? payload.bootId ?? payload.boot);
+      const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
+      const avgMs = num(payload.avg_ms ?? payload.avgMs);
       let id = payload.id ? String(payload.id) : null;
       if (!id) {
         if (deviceId && Number.isFinite(bootId) && Number.isFinite(shotIndex)) {
@@ -244,6 +285,8 @@ export default {
             created_at: createdAtMs,
             shot_ms: shotMs,
             shot_index: shotIndex,
+            brew_counter: brewCounter,
+            avg_ms: avgMs,
           });
           ctx.waitUntil(
             hub.fetch("https://hub/broadcast", {
