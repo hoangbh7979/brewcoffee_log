@@ -27,6 +27,28 @@ export default {
       return env.SHOT_HUB.get(id).fetch(request);
     }
 
+    if (request.method === "GET" && url.pathname === "/api/ws-ingest") {
+      const key =
+        request.headers.get("x-api-key") ||
+        url.searchParams.get("key") ||
+        "";
+
+      if (!env.API_KEY || key !== env.API_KEY) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("Expected websocket", { status: 400 });
+      }
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      server.accept();
+      server.addEventListener("message", (event) => {
+        ctx.waitUntil(handleWsMessage(event, env, ctx));
+      });
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     if (request.method === "GET" && url.pathname === "/") {
       if (!env.DB) {
         return new Response("DB not found", { status: 500 });
@@ -518,63 +540,10 @@ export default {
         return json({ ok: false, error: "invalid_json" }, origin, allowedOrigin, 400);
       }
 
-      const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
-      const shotEpochSec = num(payload.epoch ?? payload.ts);
-      const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
-      const deviceId = payload.device_id ? String(payload.device_id) : null;
-      const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
-      const shotUid = num(payload.shot_uid ?? payload.shotUid ?? payload.uid);
-      const bootId = num(payload.boot_id ?? payload.bootId ?? payload.boot);
-      const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
-      const avgMs = num(payload.avg_ms ?? payload.avgMs);
-      let id = payload.id ? String(payload.id) : null;
-      if (!id) {
-        if (deviceId && Number.isFinite(bootId) && Number.isFinite(shotIndex)) {
-          id = `${deviceId}:${bootId}:${shotIndex}`;
-        } else if (deviceId && Number.isFinite(shotUid)) {
-          id = `${deviceId}:${shotUid}`;
-        } else if (deviceId && Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
-          id = `${deviceId}:${shotIndex}:${shotEpochSec}`;
-        } else {
-          id = crypto.randomUUID();
-        }
+      const result = await ingestPayload(payload, env, ctx);
+      if (!result.ok) {
+        return json({ ok: false, error: result.error || "ingest_failed" }, origin, allowedOrigin, result.status || 500);
       }
-
-      const hubMessage = JSON.stringify({
-        id,
-        created_at: createdAtMs,
-        shot_ms: shotMs,
-        shot_index: shotIndex,
-        brew_counter: brewCounter,
-        avg_ms: avgMs,
-      });
-
-      if (env.SHOT_HUB && ctx) {
-        const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
-        ctx.waitUntil(
-          hub.fetch("https://hub/broadcast", {
-            method: "POST",
-            body: hubMessage,
-          })
-        );
-      }
-
-      if (env.DB) {
-        const result = await env.DB.prepare(
-          "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
-        ).bind(
-          id,
-          createdAtMs,
-          shotMs,
-          deviceId,
-          shotIndex,
-          JSON.stringify(payload)
-        ).run();
-        // inserted count is not needed because we broadcast optimistically
-      } else {
-        return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
-      }
-
       return new Response(null, {
         status: 204,
         headers: corsHeaders(origin, allowedOrigin),
@@ -657,6 +626,81 @@ function json(obj, origin, allowedOrigin, status = 200) {
       ...corsHeaders(origin, allowedOrigin),
     },
   });
+}
+
+async function handleWsMessage(event, env, ctx) {
+  let payload = null;
+  try {
+    payload = JSON.parse(event.data);
+  } catch {
+    return;
+  }
+  await ingestPayload(payload, env, ctx);
+}
+
+async function ingestPayload(payload, env, ctx) {
+  const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
+  const shotEpochSec = num(payload.epoch ?? payload.ts);
+  const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
+  const deviceId = payload.device_id ? String(payload.device_id) : null;
+  const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
+  const shotUid = num(payload.shot_uid ?? payload.shotUid ?? payload.uid);
+  const bootId = num(payload.boot_id ?? payload.bootId ?? payload.boot);
+  const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
+  const avgMs = num(payload.avg_ms ?? payload.avgMs);
+
+  if (!Number.isFinite(shotMs)) {
+    return { ok: false, error: "invalid_shot_ms", status: 400 };
+  }
+
+  let id = payload.id ? String(payload.id) : null;
+  if (!id) {
+    if (deviceId && Number.isFinite(bootId) && Number.isFinite(shotIndex)) {
+      id = `${deviceId}:${bootId}:${shotIndex}`;
+    } else if (deviceId && Number.isFinite(shotUid)) {
+      id = `${deviceId}:${shotUid}`;
+    } else if (deviceId && Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
+      id = `${deviceId}:${shotIndex}:${shotEpochSec}`;
+    } else {
+      id = crypto.randomUUID();
+    }
+  }
+
+  const hubMessage = JSON.stringify({
+    id,
+    created_at: createdAtMs,
+    shot_ms: shotMs,
+    shot_index: shotIndex,
+    brew_counter: brewCounter,
+    avg_ms: avgMs,
+  });
+
+  if (env.SHOT_HUB && ctx) {
+    const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
+    ctx.waitUntil(
+      hub.fetch("https://hub/broadcast", {
+        method: "POST",
+        body: hubMessage,
+      })
+    );
+  }
+
+  if (!env.DB) {
+    return { ok: false, error: "DB not bound", status: 500 };
+  }
+
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(
+    id,
+    createdAtMs,
+    shotMs,
+    deviceId,
+    shotIndex,
+    JSON.stringify(payload)
+  ).run();
+
+  return { ok: true, id, created_at: createdAtMs };
 }
 
 function isAllowedOrigin(origin, allowedOrigin) {
