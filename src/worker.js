@@ -209,13 +209,23 @@ export default {
       const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
       const shotEpochSec = num(payload.epoch ?? payload.ts);
       const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
-      const id = crypto.randomUUID();
       const deviceId = payload.device_id ? String(payload.device_id) : null;
       const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
+      const shotUid = num(payload.shot_uid ?? payload.shotUid ?? payload.uid);
+      let id = payload.id ? String(payload.id) : null;
+      if (!id) {
+        if (deviceId && Number.isFinite(shotUid)) {
+          id = `${deviceId}:${shotUid}`;
+        } else if (deviceId && Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
+          id = `${deviceId}:${shotIndex}:${shotEpochSec}`;
+        } else {
+          id = crypto.randomUUID();
+        }
+      }
 
       if (env.DB) {
-        await env.DB.prepare(
-          "INSERT INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
+        const result = await env.DB.prepare(
+          "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, payload) VALUES (?, ?, ?, ?, ?, ?)"
         ).bind(
           id,
           createdAtMs,
@@ -224,7 +234,8 @@ export default {
           shotIndex,
           JSON.stringify(payload)
         ).run();
-        if (env.SHOT_HUB && ctx) {
+        const inserted = !result || !result.meta || result.meta.changes > 0;
+        if (inserted && env.SHOT_HUB && ctx) {
           const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
           const msg = JSON.stringify({
             id,
