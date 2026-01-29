@@ -53,7 +53,7 @@ export default {
             <button class="btn" id="analysisBtn">See Detailed Analysis</button>
           </div>`;
       const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
-            <div class="analysis-title">Detailed analysis</div>
+            <div class="analysis-title">Detailed Analysis</div>
             <div class="chart-wrap">
               <canvas id="chart"></canvas>
               <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
