@@ -215,7 +215,7 @@ export default {
             const timeText = formatTime(dt);
             const shotText = formatShot(r.shot_ms);
             const idx = Number.isFinite(r.shot_index) ? '#' + r.shot_index : '';
-            return \`<tr><td>${idx}</td><td>${timeText}</td><td>${shotText}</td></tr>\`;
+            return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
           }
 
           function trimRows(tbody) {
@@ -337,7 +337,7 @@ export default {
             const dd = pad2(d.getDate());
             const mo = pad2(d.getMonth()+1);
             const yy = (""+d.getFullYear()).slice(-2);
-            return \`${hh}h${mm} ${dd}/${mo}/${yy}\`;
+            return \`\${hh}h\${mm} \${dd}/\${mo}/\${yy}\`;
           }
           function escapeHtml(s){
             return String(s || "")
