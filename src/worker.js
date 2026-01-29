@@ -1,8 +1,12 @@
+const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
+const HUB_NAME = "global";
+const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
-    const allowedOrigin = "https://shotlog.barista-homelife.cloud"; //link
+    const allowedOrigin = ALLOWED_ORIGIN;
 
     // CORS preflight
     if (request.method === "OPTIONS") {
@@ -10,6 +14,17 @@ export default {
         status: 204,
         headers: corsHeaders(origin, allowedOrigin),
       });
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/ws") {
+      if (!env.SHOT_HUB) {
+        return new Response("Hub not bound", { status: 500 });
+      }
+      if (!isAllowedOrigin(origin, allowedOrigin)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const id = env.SHOT_HUB.idFromName(HUB_NAME);
+      return env.SHOT_HUB.get(id).fetch(request);
     }
 
     if (request.method === "GET" && url.pathname === "/") {
@@ -55,6 +70,7 @@ export default {
       <body>
         <div class="wrap">
           <header>BREW RECORD</header>
+          <div class="sub" id="status">Connecting...</div>
           <table>
             <thead>
               <tr><th>Brew number</th><th>Time</th><th>Shot</th><th>Device</th></tr>
@@ -66,6 +82,38 @@ export default {
         </div>
 
         <script>
+          const MAX_ROWS = 300;
+          const seen = new Set();
+          const statusEl = document.getElementById('status');
+
+          function setStatus(text) {
+            if (statusEl) statusEl.textContent = text;
+          }
+
+          function renderRow(r) {
+            const dt = new Date(r.created_at);
+            const timeText = formatTime(dt);
+            const shotText = formatShot(r.shot_ms);
+            const dev = escapeHtml(r.device_id || '');
+            const idx = Number.isFinite(r.shot_index) ? '#' + r.shot_index : '';
+            return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td><td>\${dev}</td></tr>\`;
+          }
+
+          function trimRows(tbody) {
+            while (tbody.children.length > MAX_ROWS) {
+              tbody.removeChild(tbody.lastElementChild);
+            }
+          }
+
+          function prependRow(r) {
+            const tbody = document.getElementById('shots');
+            if (!tbody) return;
+            if (r && r.id && seen.has(r.id)) return;
+            if (r && r.id) seen.add(r.id);
+            tbody.insertAdjacentHTML('afterbegin', renderRow(r));
+            trimRows(tbody);
+          }
+
           async function loadShots() {
             try {
               const res = await fetch('/api/shots?limit=300', { cache: 'no-store' });
@@ -76,14 +124,10 @@ export default {
                 tbody.innerHTML = '<tr><td colspan="4">No data</td></tr>';
                 return;
               }
-              tbody.innerHTML = data.map(r => {
-                const dt = new Date(r.created_at);
-                const timeText = formatTime(dt);
-                const shotText = formatShot(r.shot_ms);
-                const dev = escapeHtml(r.device_id || '');
-                const idx = Number.isFinite(r.shot_index) ? '#' + r.shot_index : '';
-                return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td><td>\${dev}</td></tr>\`;
-              }).join('');
+              seen.clear();
+              data.forEach(r => { if (r && r.id) seen.add(r.id); });
+              tbody.innerHTML = data.map(r => renderRow(r)).join('');
+              trimRows(tbody);
             } catch (e) {
               // ignore fetch errors (offline etc.)
             }
@@ -109,8 +153,30 @@ export default {
               .replace(/>/g,"&gt;");
           }
 
+          function connectWs() {
+            setStatus("Connecting...");
+            const proto = location.protocol === "https:" ? "wss" : "ws";
+            const ws = new WebSocket(\`\${proto}://\${location.host}/api/ws\`);
+            ws.onopen = () => setStatus("Live");
+            ws.onmessage = (ev) => {
+              try {
+                const data = JSON.parse(ev.data);
+                if (data) prependRow(data);
+              } catch (e) {
+                // ignore bad payloads
+              }
+            };
+            ws.onclose = () => {
+              setStatus("Reconnecting...");
+              setTimeout(connectWs, 2000);
+            };
+            ws.onerror = () => {
+              ws.close();
+            };
+          }
+
           loadShots();
-          setInterval(loadShots, 3000);
+          connectWs();
         </script>
       </body>
       </html>`;
@@ -158,6 +224,22 @@ export default {
           shotIndex,
           JSON.stringify(payload)
         ).run();
+        if (env.SHOT_HUB && ctx) {
+          const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
+          const msg = JSON.stringify({
+            id,
+            created_at: createdAtMs,
+            shot_ms: shotMs,
+            device_id: deviceId,
+            shot_index: shotIndex,
+          });
+          ctx.waitUntil(
+            hub.fetch("https://hub/broadcast", {
+              method: "POST",
+              body: msg,
+            })
+          );
+        }
       } else {
         return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
       }
@@ -181,6 +263,50 @@ export default {
   },
 };
 
+export class ShotHub {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.sockets = new Set();
+  }
+
+  async fetch(request) {
+    if (request.headers.get("Upgrade") === "websocket") {
+      const origin = request.headers.get("Origin") || "";
+      if (!isAllowedOrigin(origin, ALLOWED_ORIGIN)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      server.accept();
+      this.sockets.add(server);
+      server.addEventListener("close", () => this.sockets.delete(server));
+      server.addEventListener("error", () => this.sockets.delete(server));
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === "/broadcast") {
+      const msg = await request.text();
+      if (msg) this.broadcast(msg);
+      return new Response("ok");
+    }
+
+    return new Response("Not found", { status: 404 });
+  }
+
+  broadcast(msg) {
+    for (const ws of this.sockets) {
+      try {
+        if (ws.readyState === 1) ws.send(msg);
+      } catch (e) {
+        this.sockets.delete(ws);
+      }
+    }
+  }
+}
+
 function corsHeaders(origin, allowedOrigin) {
   return {
     "Access-Control-Allow-Origin": origin === allowedOrigin ? origin : allowedOrigin,
@@ -197,6 +323,12 @@ function json(obj, origin, allowedOrigin, status = 200) {
       ...corsHeaders(origin, allowedOrigin),
     },
   });
+}
+
+function isAllowedOrigin(origin, allowedOrigin) {
+  if (!origin) return true;
+  if (origin === allowedOrigin) return true;
+  return DEV_ORIGINS.has(origin);
 }
 
 function num(v) {
