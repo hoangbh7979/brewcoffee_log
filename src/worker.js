@@ -33,20 +33,18 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, device_id, shot_index FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, shot_index FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
         const dt = new Date(r.created_at);
         const timeText = formatTime(dt); // HHhMM dd/mm/yy
         const shotText = formatShot(r.shot_ms); // 00.00s
-        const dev = r.device_id || "";
         const idx = Number.isFinite(r.shot_index) ? `#${r.shot_index}` : "";
         return `<tr>
           <td>${idx}</td>
           <td>${timeText}</td>
           <td>${shotText}</td>
-          <td>${escapeHtml(dev)}</td>
         </tr>`;
       }).join("");
 
@@ -73,10 +71,10 @@ export default {
           <div class="sub" id="status">Connecting...</div>
           <table>
             <thead>
-              <tr><th>Brew number</th><th>Time</th><th>Shot</th><th>Device</th></tr>
+              <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
             </thead>
             <tbody id="shots">
-              ${rows || `<tr><td colspan="4">No data</td></tr>`}
+              ${rows || `<tr><td colspan="3">No data</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -94,9 +92,8 @@ export default {
             const dt = new Date(r.created_at);
             const timeText = formatTime(dt);
             const shotText = formatShot(r.shot_ms);
-            const dev = escapeHtml(r.device_id || '');
             const idx = Number.isFinite(r.shot_index) ? '#' + r.shot_index : '';
-            return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td><td>\${dev}</td></tr>\`;
+            return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
           }
 
           function trimRows(tbody) {
@@ -121,7 +118,7 @@ export default {
               const tbody = document.getElementById('shots');
               const data = json.data || [];
               if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4">No data</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="3">No data</td></tr>';
                 return;
               }
               seen.clear();
@@ -242,7 +239,6 @@ export default {
             id,
             created_at: createdAtMs,
             shot_ms: shotMs,
-            device_id: deviceId,
             shot_index: shotIndex,
           });
           ctx.waitUntil(
@@ -265,7 +261,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, device_id, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
