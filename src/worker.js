@@ -215,7 +215,7 @@ export default {
             const timeText = formatTime(dt);
             const shotText = formatShot(r.shot_ms);
             const idx = Number.isFinite(r.shot_index) ? '#' + r.shot_index : '';
-            return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
+            return \`<tr><td>${idx}</td><td>${timeText}</td><td>${shotText}</td></tr>\`;
           }
 
           function trimRows(tbody) {
@@ -337,7 +337,7 @@ export default {
             const dd = pad2(d.getDate());
             const mo = pad2(d.getMonth()+1);
             const yy = (""+d.getFullYear()).slice(-2);
-            return \`\${hh}h\${mm} \${dd}/\${mo}/\${yy}\`;
+            return \`${hh}h${mm} ${dd}/${mo}/${yy}\`;
           }
           function escapeHtml(s){
             return String(s || "")
@@ -481,27 +481,45 @@ export default {
             }
           }
 
-          function connectWs() {
-            setStatus("Connecting...");
-            const proto = location.protocol === "https:" ? "wss" : "ws";
-            const ws = new WebSocket(\`\${proto}://\${location.host}/api/ws\`);
-            ws.onopen = () => setStatus("Live");
-            ws.onmessage = (ev) => {
-              try {
-                const data = JSON.parse(ev.data);
-                if (data) prependRow(data);
-              } catch (e) {
-                // ignore bad payloads
-              }
-            };
-            ws.onclose = () => {
-              setStatus("Reconnecting...");
-              setTimeout(connectWs, 2000);
-            };
-            ws.onerror = () => {
-              ws.close();
-            };
-          }
+                    function connectWs() {
+                      setStatus("Connecting...");
+                      const proto = location.protocol === "https:" ? "wss" : "ws";
+                      const ws = new WebSocket(`${proto}://${location.host}/api/ws`);
+                      window._shotWs = ws;
+                      if (window._shotWsPing) {
+                        clearInterval(window._shotWsPing);
+                        window._shotWsPing = null;
+                      }
+                      ws.onopen = () => {
+                        setStatus("Live");
+                        window._shotWsRetry = 300;
+                        window._shotWsPing = setInterval(() => {
+                          try { ws.send("ping"); } catch (e) {}
+                        }, 10000);
+                      };
+                      ws.onmessage = (ev) => {
+                        try {
+                          if (ev.data === "pong") return;
+                          const data = JSON.parse(ev.data);
+                          if (data) prependRow(data);
+                        } catch (e) {
+                          // ignore bad payloads
+                        }
+                      };
+                      ws.onclose = () => {
+                        setStatus("Reconnecting...");
+                        if (window._shotWsPing) {
+                          clearInterval(window._shotWsPing);
+                          window._shotWsPing = null;
+                        }
+                        const delay = window._shotWsRetry || 300;
+                        setTimeout(connectWs, delay);
+                        window._shotWsRetry = Math.min((window._shotWsRetry || 300) * 2, 2000);
+                      };
+                      ws.onerror = () => {
+                        ws.close();
+                      };
+                    }
 
           loadShots();
           connectWs();
@@ -595,6 +613,11 @@ export class ShotHub {
       this.sockets.add(server);
       server.addEventListener("close", () => this.sockets.delete(server));
       server.addEventListener("error", () => this.sockets.delete(server));
+      server.addEventListener("message", (event) => {
+        if (event.data === "ping") {
+          try { server.send("pong"); } catch (e) {}
+        }
+      });
       return new Response(null, { status: 101, webSocket: client });
     }
 
