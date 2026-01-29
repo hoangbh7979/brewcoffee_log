@@ -135,7 +135,8 @@ export default {
 
           function formatShot(ms) {
             if (!Number.isFinite(ms)) return "--.--s";
-            return (ms/1000).toFixed(2) + "s";
+            const cs = Math.floor(ms / 10);
+            return (cs / 100).toFixed(2) + "s";
           }
           function pad2(n){ return n < 10 ? "0"+n : ""+n; }
           function formatTime(d){
@@ -355,8 +356,8 @@ function clampInt(v, min, max, fallback) {
 
 function formatShot(ms) {
   if (!Number.isFinite(ms)) return "--.--s";
-  const s = ms / 1000;
-  return s.toFixed(2) + "s";
+  const cs = Math.floor(ms / 10);
+  return (cs / 100).toFixed(2) + "s";
 }
 
 function pad2(n) {
