@@ -256,7 +256,10 @@ export default {
         return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
       }
 
-      return json({ ok: true, id, created_at: createdAtMs }, origin, allowedOrigin);
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(origin, allowedOrigin),
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/api/shots") {
