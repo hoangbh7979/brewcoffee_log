@@ -175,6 +175,7 @@ export default {
 
           loadShots();
           connectWs();
+          setInterval(loadShots, 30000);
         </script>
       </body>
       </html>`;
@@ -210,9 +211,12 @@ export default {
       const deviceId = payload.device_id ? String(payload.device_id) : null;
       const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
       const shotUid = num(payload.shot_uid ?? payload.shotUid ?? payload.uid);
+      const bootId = num(payload.boot_id ?? payload.bootId ?? payload.boot);
       let id = payload.id ? String(payload.id) : null;
       if (!id) {
-        if (deviceId && Number.isFinite(shotUid)) {
+        if (deviceId && Number.isFinite(bootId) && Number.isFinite(shotIndex)) {
+          id = `${deviceId}:${bootId}:${shotIndex}`;
+        } else if (deviceId && Number.isFinite(shotUid)) {
           id = `${deviceId}:${shotUid}`;
         } else if (deviceId && Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
           id = `${deviceId}:${shotIndex}:${shotEpochSec}`;
