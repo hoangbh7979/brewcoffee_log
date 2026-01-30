@@ -55,23 +55,14 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, shot_index FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
         const dt = new Date(r.created_at);
         const timeText = formatTime(dt); // HHhMM dd/mm/yy
         const shotText = formatShot(r.shot_ms); // 00.00s
-        let idxVal = null;
-        if (r && r.payload) {
-          try {
-            const p = typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload;
-            if (Number.isFinite(p.shot_index)) idxVal = p.shot_index;
-          } catch (e) {
-            // ignore invalid payload
-          }
-        }
-        const idx = Number.isFinite(idxVal) ? `#${idxVal}` : "";
+        const idx = Number.isFinite(r.shot_index) ? `#${r.shot_index}` : "";
         return `<tr>
           <td>${idx}</td>
           <td>${timeText}</td>
@@ -235,15 +226,7 @@ export default {
 
           function toPoint(r) {
             if (!r) return null;
-            let x = Number(r.shot_index);
-            if (!Number.isFinite(x) && r.payload) {
-              try {
-                const p = typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload;
-                x = Number(p && p.shot_index);
-              } catch (e) {
-                x = Number.NaN;
-              }
-            }
+            const x = Number(r.shot_index);
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
@@ -630,7 +613,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, shot_index, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
@@ -775,6 +758,7 @@ function preparePayload(payload) {
     created_at: createdAtMs,
     shot_ms: shotMs,
     shot_index: shotIndex,
+    boot_id: bootId,
     brew_counter: brewCounter,
     avg_ms: avgMs,
   });
@@ -786,6 +770,9 @@ function preparePayload(payload) {
     shotMs,
     deviceId,
     shotIndex,
+    bootId,
+    brewCounter,
+    avgMs,
     payloadJson: JSON.stringify(payload),
     hubMessage,
   };
@@ -801,12 +788,16 @@ async function broadcastShot(hubMessage, env) {
 
 async function insertShot(prep, env) {
   return env.DB.prepare(
-    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, payload) VALUES (?, ?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, boot_id, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
     prep.id,
     prep.createdAtMs,
     prep.shotMs,
     prep.deviceId,
+    prep.shotIndex,
+    prep.bootId,
+    prep.brewCounter,
+    prep.avgMs,
     prep.payloadJson
   ).run();
 }
