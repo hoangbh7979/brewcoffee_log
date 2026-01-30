@@ -1,6 +1,7 @@
 const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 const HUB_NAME = "global";
 const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
+const LOCAL_SOCKETS = new Set();
 
 const CLIENT_SCRIPT = `
           const MAX_ROWS = 300;
@@ -636,11 +637,22 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/api/ws") {
-      if (!env.SHOT_HUB) {
-        return new Response("Hub not bound", { status: 500 });
+      if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("Expected websocket", { status: 400 });
       }
-      const id = env.SHOT_HUB.idFromName(HUB_NAME);
-      return env.SHOT_HUB.get(id).fetch(request);
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      server.accept();
+      LOCAL_SOCKETS.add(server);
+      server.addEventListener("close", () => LOCAL_SOCKETS.delete(server));
+      server.addEventListener("error", () => LOCAL_SOCKETS.delete(server));
+      server.addEventListener("message", (event) => {
+        if (event.data === "ping") {
+          try { server.send("pong"); } catch (e) {}
+        }
+      });
+      return new Response(null, { status: 101, webSocket: client });
     }
 
     if (request.method === "GET" && url.pathname === "/api/ws-ingest") {
@@ -935,6 +947,7 @@ async function handleWsMessage(event, env, ctx) {
   }
   const prep = preparePayload(payload);
   if (!prep.ok) return;
+  broadcastLocal(prep.hubMessage);
   if (env.SHOT_HUB) {
     await broadcastShot(prep.hubMessage, env);
   }
@@ -948,6 +961,7 @@ async function handleWsMessage(event, env, ctx) {
 async function ingestPayload(payload, env, ctx) {
   const prep = preparePayload(payload);
   if (!prep.ok) return prep;
+  broadcastLocal(prep.hubMessage);
   if (env.SHOT_HUB && ctx) {
     ctx.waitUntil(broadcastShot(prep.hubMessage, env));
   } else if (env.SHOT_HUB) {
@@ -1016,6 +1030,18 @@ async function broadcastShot(hubMessage, env) {
     method: "POST",
     body: hubMessage,
   });
+}
+
+function broadcastLocal(msg) {
+  if (!msg) return;
+  for (const ws of LOCAL_SOCKETS) {
+    try {
+      if (ws.readyState === 1) ws.send(msg);
+      else LOCAL_SOCKETS.delete(ws);
+    } catch (e) {
+      LOCAL_SOCKETS.delete(ws);
+    }
+  }
 }
 
 async function insertShot(prep, env) {
