@@ -55,14 +55,14 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
         const dt = new Date(r.created_at);
         const timeText = formatTime(dt); // HHhMM dd/mm/yy
         const shotText = formatShot(r.shot_ms); // 00.00s
-        const idx = Number.isFinite(r.shot_index) ? `#${r.shot_index}` : "";
+        const idx = Number.isFinite(r.brew_counter) ? `#${r.brew_counter}` : "";
         return `<tr>
           <td>${idx}</td>
           <td>${timeText}</td>
@@ -230,7 +230,7 @@ export default {
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
-            return { id: r.id || ("" + x + ":" + y), x, y: ySec };
+            return { id: String(r.created_at || ("" + x + ":" + y)), x, y: ySec };
           }
 
           function resetChart() {
@@ -267,7 +267,7 @@ export default {
 
           function addChartPoint(r) {
             if (!ENABLE_ANALYSIS) return;
-            const idx = Number(r && r.shot_index);
+            const idx = Number(r && r.brew_counter);
             if (Number.isFinite(idx)) {
               if (idx === 1 || (chartMaxIndex > 0 && idx < chartMaxIndex)) {
                 resetChart();
@@ -289,11 +289,17 @@ export default {
             }
           }
 
+          function rowKey(r) {
+            return String(r && r.created_at);
+          }
+
           function prependRow(r) {
             const tbody = document.getElementById('shots');
             if (!tbody) return;
-            if (r && r.id && seen.has(r.id)) return;
-            if (r && r.id) seen.add(r.id);
+            const key = rowKey(r);
+            if (!key) return;
+            if (seen.has(key)) return;
+            seen.add(key);
             tbody.insertAdjacentHTML('afterbegin', renderRow(r));
             trimRows(tbody);
             extractStats(r);
@@ -313,7 +319,10 @@ export default {
                 return;
               }
               seen.clear();
-              data.forEach(r => { if (r && r.id) seen.add(r.id); });
+              data.forEach(r => {
+                const key = rowKey(r);
+                if (key) seen.add(key);
+              });
               tbody.innerHTML = data.map(r => renderRow(r)).join('');
               trimRows(tbody);
               extractStats(data[0]);
@@ -611,7 +620,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
@@ -717,20 +726,19 @@ async function ingestPayload(payload, env, ctx) {
   }
   if (env.DB && ctx) {
     ctx.waitUntil(insertShot(prep, env));
-    return { ok: true, id: prep.id, created_at: prep.createdAtMs };
+    return { ok: true, created_at: prep.createdAtMs };
   }
   if (!env.DB) {
     return { ok: false, error: "DB not bound", status: 500 };
   }
   await insertShot(prep, env);
-  return { ok: true, id: prep.id, created_at: prep.createdAtMs };
+  return { ok: true, created_at: prep.createdAtMs };
 }
 
 function preparePayload(payload) {
   const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
   const shotEpochSec = num(payload.epoch ?? payload.ts);
   const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
-  const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index ?? payload.brew_counter ?? payload.brewCounter);
   const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
   const avgMs = num(payload.avg_ms ?? payload.avgMs);
 
@@ -738,32 +746,17 @@ function preparePayload(payload) {
     return { ok: false, error: "invalid_shot_ms", status: 400 };
   }
 
-  let id = payload.id ? String(payload.id) : null;
-  if (!id) {
-    if (Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
-      id = `${shotIndex}:${shotEpochSec}`;
-    } else if (Number.isFinite(shotIndex) && Number.isFinite(createdAtMs)) {
-      id = `${shotIndex}:${createdAtMs}`;
-    } else {
-      id = crypto.randomUUID();
-    }
-  }
-
   const hubMessage = JSON.stringify({
-    id,
     created_at: createdAtMs,
     shot_ms: shotMs,
-    shot_index: shotIndex,
     brew_counter: brewCounter,
     avg_ms: avgMs,
   });
 
   return {
     ok: true,
-    id,
     createdAtMs,
     shotMs,
-    shotIndex,
     brewCounter,
     avgMs,
     payloadJson: JSON.stringify(payload),
@@ -781,9 +774,8 @@ async function broadcastShot(hubMessage, env) {
 
 async function insertShot(prep, env) {
   return env.DB.prepare(
-    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO shots (created_at, shot_ms, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?)"
   ).bind(
-    prep.id,
     prep.createdAtMs,
     prep.shotMs,
     prep.brewCounter,
