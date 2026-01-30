@@ -618,7 +618,7 @@ export default {
       if (!env.SHOT_HUB) {
         return new Response("Hub not bound", { status: 500 });
       }
-      if (!isAllowedOrigin(origin, allowedOrigin)) {
+      if (!isAllowedOrigin(origin, allowedOrigin, request.url)) {
         return new Response("Forbidden", { status: 403 });
       }
       const id = env.SHOT_HUB.idFromName(HUB_NAME);
@@ -847,7 +847,7 @@ export class ShotHub {
   async fetch(request) {
     if (request.headers.get("Upgrade") === "websocket") {
       const origin = request.headers.get("Origin") || "";
-      if (!isAllowedOrigin(origin, ALLOWED_ORIGIN)) {
+      if (!isAllowedOrigin(origin, ALLOWED_ORIGIN, request.url)) {
         return new Response("Forbidden", { status: 403 });
       }
       const pair = new WebSocketPair();
@@ -1009,9 +1009,18 @@ async function insertShot(prep, env) {
   ).run();
 }
 
-function isAllowedOrigin(origin, allowedOrigin) {
+function isAllowedOrigin(origin, allowedOrigin, requestUrl) {
   if (!origin) return true;
   if (origin === allowedOrigin) return true;
+  if (requestUrl) {
+    try {
+      const o = new URL(origin);
+      const r = new URL(requestUrl);
+      if (o.host === r.host) return true;
+    } catch (e) {
+      // ignore invalid origin/url
+    }
+  }
   return DEV_ORIGINS.has(origin);
 }
 
