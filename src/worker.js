@@ -5,6 +5,8 @@ const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
 const CLIENT_SCRIPT = `
           const MAX_ROWS = 300;
           const MAX_POINTS = 200;
+          const FAST_POLL_MS = 500;
+          const POLL_LIMIT = 50;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
@@ -25,6 +27,7 @@ const CLIENT_SCRIPT = `
           let chartMinX = 0;
           let chartMaxX = 0;
           let chartDayKeys = [];
+          let lastSeenCreatedAt = 0;
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
 
           function setStatus(text) {
@@ -103,6 +106,12 @@ const CLIENT_SCRIPT = `
             const shotText = formatShot(r.shot_ms);
             const idx = Number.isFinite(r.shot_index) ? "#" + r.shot_index : "";
             return "<tr><td>" + idx + "</td><td>" + timeText + "</td><td>" + shotText + "</td></tr>";
+          }
+
+          function noteSeen(r) {
+            if (!r) return;
+            const ts = Number(r.created_at);
+            if (Number.isFinite(ts) && ts > lastSeenCreatedAt) lastSeenCreatedAt = ts;
           }
 
           function trimRows(tbody) {
@@ -192,6 +201,7 @@ const CLIENT_SCRIPT = `
             trimRows(tbody);
             extractStats(r);
             addChartPoint(r);
+            noteSeen(r);
           }
 
           async function loadShots() {
@@ -207,7 +217,13 @@ const CLIENT_SCRIPT = `
                 return;
               }
               seen.clear();
-              data.forEach(r => { if (r && r.id) seen.add(r.id); });
+              let maxTs = 0;
+              data.forEach(r => {
+                if (r && r.id) seen.add(r.id);
+                const ts = Number(r && r.created_at);
+                if (Number.isFinite(ts) && ts > maxTs) maxTs = ts;
+              });
+              if (maxTs > 0) lastSeenCreatedAt = maxTs;
               tbody.innerHTML = data.map(r => renderRow(r)).join('');
               trimRows(tbody);
               extractStats(data[0]);
@@ -477,10 +493,14 @@ const CLIENT_SCRIPT = `
 
                               async function fastPollLatest() {
                                 try {
-                                  const res = await fetch('/api/shots?limit=5', { cache: 'no-store' });
+                                  const base = lastSeenCreatedAt > 0
+                                    ? ('/api/shots?since=' + encodeURIComponent(lastSeenCreatedAt) + '&limit=' + POLL_LIMIT)
+                                    : '/api/shots?limit=5';
+                                  const res = await fetch(base, { cache: 'no-store' });
                                   const json = await res.json();
                                   const data = json.data || [];
-                                  for (let i = data.length - 1; i >= 0; i--) {
+                                  if (data.length === 0) return;
+                                  for (let i = 0; i < data.length; i++) {
                                     prependRow(data[i]);
                                   }
                                 } catch (e) {
@@ -490,7 +510,8 @@ const CLIENT_SCRIPT = `
 
                               function startFastPoll() {
                                 if (wsFastPoll) return;
-                                wsFastPoll = setInterval(fastPollLatest, 1000);
+                                fastPollLatest();
+                                wsFastPoll = setInterval(fastPollLatest, FAST_POLL_MS);
                               }
 
                               function stopFastPoll() {
@@ -510,7 +531,7 @@ const CLIENT_SCRIPT = `
             try {
               ws = new WebSocket(proto + "://" + location.host + "/api/ws");
             } catch (e) {
-              setStatus("Polling...");
+              setStatus("Polling (" + FAST_POLL_MS + "ms)");
               startFastPoll();
               const delay = wsRetryDelay || 300;
               setTimeout(connectWs, delay);
@@ -524,7 +545,7 @@ const CLIENT_SCRIPT = `
             }
             wsConnectTimer = setTimeout(() => {
               if (ws && ws.readyState !== 1) {
-                setStatus("Polling...");
+                setStatus("Polling (" + FAST_POLL_MS + "ms)");
                 startFastPoll();
               }
             }, 2000);
@@ -533,7 +554,7 @@ const CLIENT_SCRIPT = `
                 clearTimeout(wsConnectTimer);
                 wsConnectTimer = null;
               }
-              setStatus("Live");
+              setStatus("Live (WS)");
               wsRetryDelay = 300;
               stopFastPoll();
               if (window._shotWsPing) {
@@ -576,7 +597,7 @@ const CLIENT_SCRIPT = `
 
           try {
             loadShots();
-            setStatus("Polling...");
+            setStatus("Polling (" + FAST_POLL_MS + "ms)");
             startFastPoll();
             connectWs();
           } catch (e) {
@@ -617,9 +638,6 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/ws") {
       if (!env.SHOT_HUB) {
         return new Response("Hub not bound", { status: 500 });
-      }
-      if (!isAllowedOrigin(origin, allowedOrigin, request.url)) {
-        return new Response("Forbidden", { status: 403 });
       }
       const id = env.SHOT_HUB.idFromName(HUB_NAME);
       return env.SHOT_HUB.get(id).fetch(request);
@@ -825,10 +843,17 @@ export default {
       if (!env.DB) {
         return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
       }
-      const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
-      const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
-      ).bind(limit).all();
+      const sinceRaw = url.searchParams.get("since");
+      const since = sinceRaw !== null ? Number(sinceRaw) : null;
+      const limitDefault = Number.isFinite(since) ? 50 : 300;
+      const limit = clampInt(url.searchParams.get("limit"), 1, 200, limitDefault);
+      let query = "SELECT id, created_at, shot_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?";
+      let bindings = [limit];
+      if (Number.isFinite(since)) {
+        query = "SELECT id, created_at, shot_ms, shot_index, payload FROM shots WHERE created_at > ? ORDER BY created_at ASC LIMIT ?";
+        bindings = [since, limit];
+      }
+      const { results } = await env.DB.prepare(query).bind(...bindings).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
     }
@@ -847,9 +872,6 @@ export class ShotHub {
   async fetch(request) {
     if (request.headers.get("Upgrade") === "websocket") {
       const origin = request.headers.get("Origin") || "";
-      if (!isAllowedOrigin(origin, ALLOWED_ORIGIN, request.url)) {
-        return new Response("Forbidden", { status: 403 });
-      }
       const pair = new WebSocketPair();
       const client = pair[0];
       const server = pair[1];
