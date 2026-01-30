@@ -77,6 +77,7 @@ export default {
       const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
             <div class="analysis-title">Detailed Analysis</div>
             <div class="chart-wrap">
+              <canvas id="chartAxis"></canvas>
               <div class="chart-scroll" id="chartScroll">
                 <canvas id="chart"></canvas>
               </div>
@@ -105,8 +106,9 @@ export default {
           .btn:active { transform: translateY(1px); }
           .panel { margin-top:8px; }
           .hidden { display:none; }
-          .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
-          .chart-scroll { overflow-x:auto; overflow-y:hidden; padding-bottom:6px; }
+          .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; display:flex; gap:8px; align-items:flex-start; }
+          #chartAxis { width:50px; height:320px; display:block; flex:0 0 auto; }
+          .chart-scroll { overflow-x:auto; overflow-y:hidden; padding-bottom:6px; flex:1 1 auto; }
           .chart-scroll::-webkit-scrollbar { height: 8px; }
           .chart-scroll::-webkit-scrollbar-track { background:#10161c; border-radius:999px; }
           .chart-scroll::-webkit-scrollbar-thumb { background:#2e4a5a; border-radius:999px; }
@@ -148,8 +150,10 @@ export default {
           const analysisView = document.getElementById('analysisView');
           const analysisBtn = document.getElementById('analysisBtn');
           const chartCanvas = document.getElementById('chart');
+          const chartAxisCanvas = document.getElementById('chartAxis');
           const chartScroll = document.getElementById('chartScroll');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
+          let chartAxisCtx = chartAxisCanvas ? chartAxisCanvas.getContext('2d') : null;
           let chartPoints = [];
           let chartIds = new Set();
           let chartScheduled = false;
@@ -171,6 +175,7 @@ export default {
             if (mainView) mainView.classList.add('hidden');
             if (analysisView) analysisView.classList.remove('hidden');
             if (analysisBtn) analysisBtn.textContent = "Back to main";
+            updateChartSize();
             resizeChart();
             scheduleChart();
           }
@@ -338,6 +343,7 @@ export default {
               trimRows(tbody);
               extractStats(data[0]);
               setChartFromData(data);
+              updateChartSize();
             } catch (e) {
               // ignore fetch errors (offline etc.)
             }
@@ -388,6 +394,10 @@ export default {
             const width = Math.max(containerW, desired);
             chartCanvas.style.width = width + "px";
             chartCanvas.style.height = "320px";
+            if (chartAxisCanvas) {
+              chartAxisCanvas.style.width = "50px";
+              chartAxisCanvas.style.height = "320px";
+            }
             resizeChart();
           }
 
@@ -401,6 +411,15 @@ export default {
             chartCanvas.width = Math.floor(w * dpr);
             chartCanvas.height = Math.floor(h * dpr);
             chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            if (chartAxisCanvas && chartAxisCtx) {
+              const aw = chartAxisCanvas.clientWidth || 0;
+              const ah = chartAxisCanvas.clientHeight || 0;
+              if (aw > 0 && ah > 0) {
+                chartAxisCanvas.width = Math.floor(aw * dpr);
+                chartAxisCanvas.height = Math.floor(ah * dpr);
+                chartAxisCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+              }
+            }
           }
 
           function drawChart() {
@@ -447,19 +466,13 @@ export default {
               return padT + (1 - (y - yMin) / (yMax - yMin)) * plotH;
             }
 
-            // gutters to separate axes from plot
-            const axisX = padL;
-            chartCtx.fillStyle = "#0b0f13";
-            chartCtx.fillRect(0, 0, padL, h);
-            chartCtx.fillRect(0, padT + plotH, plotW + padL + padR, padB);
-
-            // axis lines
+            // axis line
             chartCtx.strokeStyle = "#22303a";
             chartCtx.lineWidth = 1;
             chartCtx.beginPath();
-            chartCtx.moveTo(axisX, padT);
-            chartCtx.lineTo(axisX, padT + plotH);
-            chartCtx.lineTo(axisX + plotW, padT + plotH);
+            chartCtx.moveTo(padL, padT);
+            chartCtx.lineTo(padL, padT + plotH);
+            chartCtx.lineTo(padL + plotW, padT + plotH);
             chartCtx.stroke();
 
             // grid
@@ -508,25 +521,37 @@ export default {
             }
 
             // labels
-            chartCtx.fillStyle = "#9aa7b3";
-            chartCtx.font = "11px Arial, sans-serif";
-            chartCtx.fillText("Brew number", axisX, h - 10);
-            chartCtx.save();
-            chartCtx.translate(26, padT + plotH / 2);
-            chartCtx.rotate(-Math.PI / 2);
-            chartCtx.fillText("Seconds", 0, 0);
-            chartCtx.restore();
-
-            // axis min/max
             chartCtx.fillStyle = "#7a8a99";
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
               const x = xFor(xVal);
               chartCtx.fillText(String(xVal), x - 4, h - 22);
             }
-            for (let i = 0; i <= gridY; i++) {
-              const yVal = yMin + i * yStep;
-              const y = yFor(yVal);
-              chartCtx.fillText(String(yVal), 6, y + 4);
+
+            if (chartAxisCtx && chartAxisCanvas) {
+              const ax = chartAxisCanvas.clientWidth || 0;
+              const ay = chartAxisCanvas.clientHeight || 0;
+              chartAxisCtx.clearRect(0, 0, ax, ay);
+              chartAxisCtx.fillStyle = "#0b0f13";
+              chartAxisCtx.fillRect(0, 0, ax, ay);
+              chartAxisCtx.strokeStyle = "#22303a";
+              chartAxisCtx.lineWidth = 1;
+              chartAxisCtx.beginPath();
+              chartAxisCtx.moveTo(ax - 1, padT);
+              chartAxisCtx.lineTo(ax - 1, padT + plotH);
+              chartAxisCtx.stroke();
+              chartAxisCtx.fillStyle = "#9aa7b3";
+              chartAxisCtx.font = "11px Arial, sans-serif";
+              chartAxisCtx.save();
+              chartAxisCtx.translate(16, padT + plotH / 2);
+              chartAxisCtx.rotate(-Math.PI / 2);
+              chartAxisCtx.fillText("Seconds", 0, 0);
+              chartAxisCtx.restore();
+              chartAxisCtx.fillStyle = "#7a8a99";
+              for (let i = 0; i <= gridY; i++) {
+                const yVal = yMin + i * yStep;
+                const y = yFor(yVal);
+                chartAxisCtx.fillText(String(yVal), 6, y + 4);
+              }
             }
           }
 
