@@ -201,6 +201,14 @@ export default {
             if (statusEl) statusEl.textContent = text;
           }
 
+          window.onerror = (msg, src, line, col) => {
+            setStatus("JS error: " + msg + " @" + line);
+          };
+          window.onunhandledrejection = (ev) => {
+            const msg = ev && ev.reason ? String(ev.reason) : "Promise error";
+            setStatus("JS error: " + msg);
+          };
+
           function showMain() {
             if (mainView) mainView.classList.remove('hidden');
             if (analysisView) analysisView.classList.add('hidden');
@@ -737,9 +745,14 @@ export default {
             };
           }
 
-          loadShots();
-          startFastPoll();
-          connectWs();
+          try {
+            loadShots();
+            setStatus("Polling...");
+            startFastPoll();
+            connectWs();
+          } catch (e) {
+            setStatus("JS error: " + (e && e.message ? e.message : "init failed"));
+          }
           setInterval(loadShots, 30000);
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
