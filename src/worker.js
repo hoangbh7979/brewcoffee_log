@@ -448,6 +448,21 @@ export default {
               return padT + (1 - (y - yMin) / (yMax - yMin)) * plotH;
             }
 
+            // gutters to separate axes from plot
+            const axisX = padL + scrollLeft;
+            chartCtx.fillStyle = "#0b0f13";
+            chartCtx.fillRect(scrollLeft, 0, padL, h);
+            chartCtx.fillRect(scrollLeft, padT + plotH, plotW + padL + padR, padB);
+
+            // axis lines
+            chartCtx.strokeStyle = "#22303a";
+            chartCtx.lineWidth = 1;
+            chartCtx.beginPath();
+            chartCtx.moveTo(axisX, padT);
+            chartCtx.lineTo(axisX, padT + plotH);
+            chartCtx.lineTo(axisX + plotW, padT + plotH);
+            chartCtx.stroke();
+
             // grid
             chartCtx.strokeStyle = "#1f2a33";
             chartCtx.lineWidth = 1;
@@ -456,15 +471,15 @@ export default {
               const yVal = yMin + i * yStep;
               const y = yFor(yVal);
               chartCtx.beginPath();
-              chartCtx.moveTo(padL, y);
-              chartCtx.lineTo(padL + plotW, y);
+              chartCtx.moveTo(axisX, y);
+              chartCtx.lineTo(axisX + plotW, y);
               chartCtx.stroke();
             }
 
             // x grid (step 1)
             chartCtx.strokeStyle = "#151d24";
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
-              const x = xFor(xVal);
+              const x = xFor(xVal) + scrollLeft;
               chartCtx.beginPath();
               chartCtx.moveTo(x, padT);
               chartCtx.lineTo(x, padT + plotH);
@@ -476,7 +491,7 @@ export default {
             chartCtx.lineWidth = 2;
             chartCtx.beginPath();
             chartPoints.forEach((p, i) => {
-              const x = xFor(p.x);
+              const x = xFor(p.x) + scrollLeft;
               const y = yFor(p.y);
               if (i === 0) chartCtx.moveTo(x, y);
               else chartCtx.lineTo(x, y);
@@ -486,7 +501,7 @@ export default {
             // points
             chartCtx.fillStyle = "#7fdcff";
             for (const p of chartPoints) {
-              const x = xFor(p.x);
+              const x = xFor(p.x) + scrollLeft;
               const y = yFor(p.y);
               chartCtx.beginPath();
               chartCtx.arc(x, y, 2.5, 0, Math.PI * 2);
@@ -496,7 +511,7 @@ export default {
             // labels
             chartCtx.fillStyle = "#9aa7b3";
             chartCtx.font = "11px Arial, sans-serif";
-            chartCtx.fillText("Brew number", padL + scrollLeft, h - 10);
+            chartCtx.fillText("Brew number", axisX, h - 10);
             chartCtx.save();
             chartCtx.translate(26 + scrollLeft, padT + plotH / 2);
             chartCtx.rotate(-Math.PI / 2);
@@ -506,7 +521,7 @@ export default {
             // axis min/max
             chartCtx.fillStyle = "#7a8a99";
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
-              const x = xFor(xVal);
+              const x = xFor(xVal) + scrollLeft;
               chartCtx.fillText(String(xVal), x - 4, h - 22);
             }
             for (let i = 0; i <= gridY; i++) {
