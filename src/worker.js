@@ -76,8 +76,27 @@ export default {
           </div>`;
       const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
             <div class="analysis-title">Detailed Analysis</div>
+            <div class="analysis-controls">
+              <label>Start brew #
+                <input id="brewStart" type="number" min="0" value="0" />
+              </label>
+              <label>Last days
+                <select id="dayFilter">
+                  <option value="0">All</option>
+                  <option value="1">1 day</option>
+                  <option value="2">2 days</option>
+                  <option value="3">3 days</option>
+                  <option value="4">4 days</option>
+                  <option value="5">5 days</option>
+                  <option value="6">6 days</option>
+                  <option value="7">7 days</option>
+                </select>
+              </label>
+            </div>
             <div class="chart-wrap">
-              <canvas id="chart"></canvas>
+              <div class="chart-scroll" id="chartScroll">
+                <canvas id="chart"></canvas>
+              </div>
               <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
             </div>
           </div>`;
@@ -105,9 +124,14 @@ export default {
           .panel { margin-top:8px; }
           .hidden { display:none; }
           .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
+          .chart-scroll { overflow-x:auto; overflow-y:hidden; padding-bottom:6px; }
           #chart { width:100%; height:320px; display:block; }
           .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
           .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
+          .analysis-controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:4px 0 10px; }
+          .analysis-controls label { color:#9aa7b3; font-size:12px; display:flex; gap:6px; align-items:center; }
+          .analysis-controls input,
+          .analysis-controls select { background:#0f1113; color:#cfefff; border:1px solid #243040; border-radius:8px; padding:6px 8px; font-size:12px; }
         </style>
       </head>
       <body>
@@ -143,11 +167,17 @@ export default {
           const analysisView = document.getElementById('analysisView');
           const analysisBtn = document.getElementById('analysisBtn');
           const chartCanvas = document.getElementById('chart');
+          const chartScroll = document.getElementById('chartScroll');
+          const brewStartEl = document.getElementById('brewStart');
+          const dayFilterEl = document.getElementById('dayFilter');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
           let chartPoints = [];
-          let chartIds = new Set();
+          let chartRaw = [];
+          let chartRawIds = new Set();
           let chartScheduled = false;
-          let chartMaxIndex = 0;
+          let chartRawMaxIndex = 0;
+          let chartMinX = 0;
+          let chartMaxX = 0;
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
 
           function setStatus(text) {
@@ -166,7 +196,7 @@ export default {
             if (analysisView) analysisView.classList.remove('hidden');
             if (analysisBtn) analysisBtn.textContent = "Back to main";
             resizeChart();
-            scheduleChart();
+            applyChartFilters();
           }
 
           function toggleAnalysis() {
@@ -179,6 +209,8 @@ export default {
           }
 
           if (analysisBtn) analysisBtn.addEventListener('click', toggleAnalysis);
+          if (brewStartEl) brewStartEl.addEventListener('input', applyChartFilters);
+          if (dayFilterEl) dayFilterEl.addEventListener('change', applyChartFilters);
 
           function updateStats(brew, avg) {
             const hasBrew = Number.isFinite(brew);
@@ -230,14 +262,16 @@ export default {
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
-            return { id: r.id || ("" + x + ":" + y), x, y: ySec };
+            const ts = r.created_at ? new Date(r.created_at).getTime() : Date.now();
+            return { id: r.id || ("" + x + ":" + y), x, y: ySec, ts };
           }
 
           function resetChart() {
             chartPoints = [];
-            chartIds = new Set();
-            chartMaxIndex = 0;
-            scheduleChart();
+            chartRaw = [];
+            chartRawIds = new Set();
+            chartRawMaxIndex = 0;
+            applyChartFilters();
           }
 
           function filterToLatestSession(data) {
@@ -259,36 +293,32 @@ export default {
             });
             pts.sort((a, b) => a.x - b.x);
             const trimmed = pts.length > MAX_POINTS ? pts.slice(pts.length - MAX_POINTS) : pts;
-            chartPoints = trimmed;
-            chartIds = new Set(trimmed.map(p => p.id));
-            chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
-            if (analysisView && !analysisView.classList.contains('hidden')) {
-              scheduleChart();
-            }
+            chartRaw = trimmed;
+            chartRawIds = new Set(trimmed.map(p => p.id));
+            chartRawMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
+            applyChartFilters();
           }
 
           function addChartPoint(r) {
             if (!ENABLE_ANALYSIS) return;
             const idx = Number(r && r.shot_index);
             if (Number.isFinite(idx)) {
-              if (idx === 1 || (chartMaxIndex > 0 && idx < chartMaxIndex)) {
+              if (idx === 1 || (chartRawMaxIndex > 0 && idx < chartRawMaxIndex)) {
                 resetChart();
               }
             }
             const pt = toPoint(r);
-            if (!pt || chartIds.has(pt.id)) return;
-            chartIds.add(pt.id);
-            chartPoints.push(pt);
-            chartPoints.sort((a, b) => a.x - b.x);
-            if (chartPoints.length > MAX_POINTS) {
-              const excess = chartPoints.length - MAX_POINTS;
-              const removed = chartPoints.splice(0, excess);
-              removed.forEach(p => chartIds.delete(p.id));
+            if (!pt || chartRawIds.has(pt.id)) return;
+            chartRawIds.add(pt.id);
+            chartRaw.push(pt);
+            chartRaw.sort((a, b) => a.x - b.x);
+            if (chartRaw.length > MAX_POINTS) {
+              const excess = chartRaw.length - MAX_POINTS;
+              const removed = chartRaw.splice(0, excess);
+              removed.forEach(p => chartRawIds.delete(p.id));
             }
-            if (pt.x > chartMaxIndex) chartMaxIndex = pt.x;
-            if (analysisView && !analysisView.classList.contains('hidden')) {
-              scheduleChart();
-            }
+            if (pt.x > chartRawMaxIndex) chartRawMaxIndex = pt.x;
+            applyChartFilters();
           }
 
           function prependRow(r) {
@@ -369,6 +399,54 @@ export default {
             chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
           }
 
+          function getMinBrew() {
+            const raw = brewStartEl ? parseInt(brewStartEl.value || "0", 10) : 0;
+            return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+          }
+
+          function getDayFilter() {
+            const raw = dayFilterEl ? parseInt(dayFilterEl.value || "0", 10) : 0;
+            return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+          }
+
+          function updateChartSize() {
+            if (!ENABLE_ANALYSIS || !chartCanvas || !chartScroll) return;
+            const containerW = chartScroll.clientWidth || 0;
+            const span = Math.max(1, (chartMaxX - chartMinX + 1));
+            const spacing = 26;
+            const desired = span * spacing + 70;
+            const width = Math.max(containerW, desired);
+            chartCanvas.style.width = width + "px";
+            chartCanvas.style.height = "320px";
+            resizeChart();
+          }
+
+          function applyChartFilters() {
+            if (!ENABLE_ANALYSIS) return;
+            const minBrew = getMinBrew();
+            const days = getDayFilter();
+            const minTs = days > 0 ? (Date.now() - days * 24 * 60 * 60 * 1000) : null;
+            const filtered = chartRaw.filter(pt => {
+              if (pt.x < minBrew) return false;
+              if (minTs && (!pt.ts || pt.ts < minTs)) return false;
+              return true;
+            });
+            filtered.sort((a, b) => a.x - b.x);
+            chartPoints = filtered;
+            if (chartPoints.length === 0) {
+              chartMinX = minBrew;
+              chartMaxX = minBrew + 1;
+            } else {
+              const minPointX = chartPoints[0].x;
+              chartMinX = Math.min(minBrew, minPointX);
+              chartMaxX = chartPoints.reduce((m, p) => (p.x > m ? p.x : m), chartMinX);
+            }
+            updateChartSize();
+            if (analysisView && !analysisView.classList.contains('hidden')) {
+              scheduleChart();
+            }
+          }
+
           function drawChart() {
             if (!ENABLE_ANALYSIS) return;
             if (!chartCanvas || !chartCtx) return;
@@ -386,15 +464,17 @@ export default {
               return;
             }
 
-            let minX = 1;
-            let maxX = chartPoints[0].x;
+            let minX = chartMinX;
+            let maxX = chartMaxX;
             let maxY = chartPoints[0].y;
             for (const p of chartPoints) {
               if (p.x > maxX) maxX = p.x;
               if (p.y > maxY) maxY = p.y;
             }
+            if (!Number.isFinite(minX)) minX = 0;
+            if (!Number.isFinite(maxX)) maxX = minX + 1;
             if (minX === maxX) { maxX = minX + 1; }
-            const yStep = 5;
+            const yStep = 2;
             let yMax = Math.ceil(maxY / yStep) * yStep;
             if (yMax < yStep) yMax = yStep;
             const yMin = 0;
@@ -463,8 +543,10 @@ export default {
             chartCtx.font = "11px Arial, sans-serif";
             chartCtx.fillText("Brew number", padL, h - 10);
             chartCtx.save();
-            chartCtx.translate(12, padT + plotH / 2);
+            chartCtx.translate(20, padT + plotH / 2);
             chartCtx.rotate(-Math.PI / 2);
+            chartCtx.textAlign = "center";
+            chartCtx.textBaseline = "middle";
             chartCtx.fillText("Seconds", 0, 0);
             chartCtx.restore();
 
@@ -477,7 +559,7 @@ export default {
             for (let i = 0; i <= gridY; i++) {
               const yVal = yMin + i * yStep;
               const y = yFor(yVal);
-              chartCtx.fillText(String(yVal), 6, y + 4);
+              chartCtx.fillText(String(yVal), 8, y + 4);
             }
           }
 
@@ -556,7 +638,7 @@ export default {
           setInterval(loadShots, 30000);
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
-            resizeChart();
+            updateChartSize();
             scheduleChart();
           });
         </script>
