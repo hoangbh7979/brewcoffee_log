@@ -80,7 +80,6 @@ export default {
               <div class="chart-scroll" id="chartScroll">
                 <canvas id="chart"></canvas>
               </div>
-              <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
             </div>
           </div>`;
 
@@ -407,6 +406,7 @@ export default {
           function drawChart() {
             if (!ENABLE_ANALYSIS) return;
             if (!chartCanvas || !chartCtx) return;
+            const scrollLeft = chartScroll ? chartScroll.scrollLeft : 0;
             const w = chartCanvas.clientWidth || 0;
             const h = chartCanvas.clientHeight || 0;
             if (w === 0 || h === 0) return;
@@ -496,9 +496,9 @@ export default {
             // labels
             chartCtx.fillStyle = "#9aa7b3";
             chartCtx.font = "11px Arial, sans-serif";
-            chartCtx.fillText("Brew number", padL, h - 10);
+            chartCtx.fillText("Brew number", padL + scrollLeft, h - 10);
             chartCtx.save();
-            chartCtx.translate(12, padT + plotH / 2);
+            chartCtx.translate(26 + scrollLeft, padT + plotH / 2);
             chartCtx.rotate(-Math.PI / 2);
             chartCtx.fillText("Seconds", 0, 0);
             chartCtx.restore();
@@ -512,7 +512,7 @@ export default {
             for (let i = 0; i <= gridY; i++) {
               const yVal = yMin + i * yStep;
               const y = yFor(yVal);
-              chartCtx.fillText(String(yVal), 6, y + 4);
+              chartCtx.fillText(String(yVal), 6 + scrollLeft, y + 4);
             }
           }
 
@@ -589,6 +589,12 @@ export default {
           loadShots();
           connectWs();
           setInterval(loadShots, 30000);
+          if (chartScroll) {
+            chartScroll.addEventListener('scroll', () => {
+              scheduleChart();
+            });
+          }
+
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
             updateChartSize();
