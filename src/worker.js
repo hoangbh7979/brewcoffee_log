@@ -55,7 +55,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
@@ -230,7 +230,7 @@ export default {
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
-            const key = String((r.created_at || "") + ":" + (r.brew_counter || ""));
+            const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "")));
             return { id: key, x, y: ySec };
           }
 
@@ -291,10 +291,7 @@ export default {
           }
 
           function rowKey(r) {
-            const ca = Number(r && r.created_at);
-            const bc = Number(r && r.brew_counter);
-            if (!Number.isFinite(ca) || !Number.isFinite(bc)) return "";
-            return ca + ":" + bc;
+            return String(r && r.id ? r.id : "");
           }
 
           function prependRow(r) {
@@ -750,7 +747,12 @@ function preparePayload(payload) {
     return { ok: false, error: "invalid_shot_ms", status: 400 };
   }
 
+  const id = (Number.isFinite(brewCounter) && Number.isFinite(shotMs))
+    ? `${brewCounter}:${shotMs}:${createdAtMs}`
+    : String(createdAtMs);
+
   const hubMessage = JSON.stringify({
+    id,
     created_at: createdAtMs,
     shot_ms: shotMs,
     brew_counter: brewCounter,
@@ -759,6 +761,7 @@ function preparePayload(payload) {
 
   return {
     ok: true,
+    id,
     createdAtMs,
     shotMs,
     brewCounter,
@@ -778,8 +781,9 @@ async function broadcastShot(hubMessage, env) {
 
 async function insertShot(prep, env) {
   return env.DB.prepare(
-    "INSERT OR IGNORE INTO shots (created_at, shot_ms, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?, ?)"
   ).bind(
+    prep.id,
     prep.createdAtMs,
     prep.shotMs,
     prep.brewCounter,
