@@ -406,7 +406,6 @@ export default {
           function drawChart() {
             if (!ENABLE_ANALYSIS) return;
             if (!chartCanvas || !chartCtx) return;
-            const scrollLeft = chartScroll ? chartScroll.scrollLeft : 0;
             const w = chartCanvas.clientWidth || 0;
             const h = chartCanvas.clientHeight || 0;
             if (w === 0 || h === 0) return;
@@ -449,10 +448,10 @@ export default {
             }
 
             // gutters to separate axes from plot
-            const axisX = padL + scrollLeft;
+            const axisX = padL;
             chartCtx.fillStyle = "#0b0f13";
-            chartCtx.fillRect(scrollLeft, 0, padL, h);
-            chartCtx.fillRect(scrollLeft, padT + plotH, plotW + padL + padR, padB);
+            chartCtx.fillRect(0, 0, padL, h);
+            chartCtx.fillRect(0, padT + plotH, plotW + padL + padR, padB);
 
             // axis lines
             chartCtx.strokeStyle = "#22303a";
@@ -479,7 +478,7 @@ export default {
             // x grid (step 1)
             chartCtx.strokeStyle = "#151d24";
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
-              const x = xFor(xVal) + scrollLeft;
+              const x = xFor(xVal);
               chartCtx.beginPath();
               chartCtx.moveTo(x, padT);
               chartCtx.lineTo(x, padT + plotH);
@@ -491,7 +490,7 @@ export default {
             chartCtx.lineWidth = 2;
             chartCtx.beginPath();
             chartPoints.forEach((p, i) => {
-              const x = xFor(p.x) + scrollLeft;
+              const x = xFor(p.x);
               const y = yFor(p.y);
               if (i === 0) chartCtx.moveTo(x, y);
               else chartCtx.lineTo(x, y);
@@ -501,7 +500,7 @@ export default {
             // points
             chartCtx.fillStyle = "#7fdcff";
             for (const p of chartPoints) {
-              const x = xFor(p.x) + scrollLeft;
+              const x = xFor(p.x);
               const y = yFor(p.y);
               chartCtx.beginPath();
               chartCtx.arc(x, y, 2.5, 0, Math.PI * 2);
@@ -513,7 +512,7 @@ export default {
             chartCtx.font = "11px Arial, sans-serif";
             chartCtx.fillText("Brew number", axisX, h - 10);
             chartCtx.save();
-            chartCtx.translate(26 + scrollLeft, padT + plotH / 2);
+            chartCtx.translate(26, padT + plotH / 2);
             chartCtx.rotate(-Math.PI / 2);
             chartCtx.fillText("Seconds", 0, 0);
             chartCtx.restore();
@@ -521,13 +520,13 @@ export default {
             // axis min/max
             chartCtx.fillStyle = "#7a8a99";
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
-              const x = xFor(xVal) + scrollLeft;
+              const x = xFor(xVal);
               chartCtx.fillText(String(xVal), x - 4, h - 22);
             }
             for (let i = 0; i <= gridY; i++) {
               const yVal = yMin + i * yStep;
               const y = yFor(yVal);
-              chartCtx.fillText(String(yVal), 6 + scrollLeft, y + 4);
+              chartCtx.fillText(String(yVal), 6, y + 4);
             }
           }
 
@@ -604,12 +603,6 @@ export default {
           loadShots();
           connectWs();
           setInterval(loadShots, 30000);
-          if (chartScroll) {
-            chartScroll.addEventListener('scroll', () => {
-              scheduleChart();
-            });
-          }
-
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
             updateChartSize();
