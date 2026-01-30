@@ -281,7 +281,9 @@ export default {
             const ySec = Math.floor(y / 10) / 100;
             const dt = r.created_at ? new Date(r.created_at) : null;
             const ts = dt ? dt.getTime() : Date.now();
-            const dayKey = dt ? `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}` : null;
+            const dayKey = dt
+              ? ("" + dt.getFullYear() + "-" + pad2(dt.getMonth() + 1) + "-" + pad2(dt.getDate()))
+              : null;
             return { id: r.id || ("" + x + ":" + y), x, y: ySec, ts, dayKey };
           }
 
@@ -447,7 +449,7 @@ export default {
               const opt = document.createElement("option");
               opt.value = k;
               const parts = k.split("-");
-              opt.textContent = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : k;
+              opt.textContent = parts.length === 3 ? (parts[2] + "/" + parts[1] + "/" + parts[0]) : k;
               dayFilterEl.appendChild(opt);
             });
             const keep = chartDayKeys.includes(current) ? current : "all";
