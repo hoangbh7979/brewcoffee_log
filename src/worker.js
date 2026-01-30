@@ -230,7 +230,8 @@ export default {
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
-            return { id: String(r.created_at || ("" + x + ":" + y)), x, y: ySec };
+            const key = String((r.created_at || "") + ":" + (r.brew_counter || ""));
+            return { id: key, x, y: ySec };
           }
 
           function resetChart() {
@@ -290,7 +291,10 @@ export default {
           }
 
           function rowKey(r) {
-            return String(r && r.created_at);
+            const ca = Number(r && r.created_at);
+            const bc = Number(r && r.brew_counter);
+            if (!Number.isFinite(ca) || !Number.isFinite(bc)) return "";
+            return ca + ":" + bc;
           }
 
           function prependRow(r) {
