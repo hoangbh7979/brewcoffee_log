@@ -547,7 +547,7 @@ export default {
               for (let i = 0; i <= gridY; i++) {
                 const yVal = yMin + i * yStep;
                 const y = yFor(yVal);
-                chartAxisCtx.fillText(String(yVal) + "s", ax - 4, y);
+                chartAxisCtx.fillText(String(yVal) + "s", ax - 2, y);
               }
             }
           }
