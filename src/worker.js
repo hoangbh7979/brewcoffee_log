@@ -542,10 +542,12 @@ export default {
               chartAxisCtx.lineTo(ax - 1, padT + plotH);
               chartAxisCtx.stroke();
               chartAxisCtx.fillStyle = "#7a8a99";
+              chartAxisCtx.textAlign = "right";
+              chartAxisCtx.textBaseline = "middle";
               for (let i = 0; i <= gridY; i++) {
                 const yVal = yMin + i * yStep;
                 const y = yFor(yVal);
-                chartAxisCtx.fillText(String(yVal) + "s", ax - 6, y + 4);
+                chartAxisCtx.fillText(String(yVal) + "s", ax - 4, y);
               }
             }
           }
