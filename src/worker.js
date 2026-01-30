@@ -242,6 +242,8 @@ export default {
           }
 
           function filterToLatestSession(data) {
+            const idx = data.findIndex(r => Number(r && r.brew_counter) === 1);
+            if (idx >= 0) return data.slice(0, idx + 1);
             return data;
           }
 
@@ -394,7 +396,7 @@ export default {
               return;
             }
 
-            let minX = 1;
+            let minX = 0;
             let maxX = chartPoints[0].x;
             let maxY = chartPoints[0].y;
             for (const p of chartPoints) {
