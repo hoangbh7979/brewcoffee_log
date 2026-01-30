@@ -2,177 +2,7 @@ const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 const HUB_NAME = "global";
 const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const origin = request.headers.get("Origin") || "";
-    const allowedOrigin = ALLOWED_ORIGIN;
-
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders(origin, allowedOrigin),
-      });
-    }
-
-    if (request.method === "GET" && url.pathname === "/api/ws") {
-      if (!env.SHOT_HUB) {
-        return new Response("Hub not bound", { status: 500 });
-      }
-      if (!isAllowedOrigin(origin, allowedOrigin)) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const id = env.SHOT_HUB.idFromName(HUB_NAME);
-      return env.SHOT_HUB.get(id).fetch(request);
-    }
-
-    if (request.method === "GET" && url.pathname === "/api/ws-ingest") {
-      const key =
-        request.headers.get("x-api-key") ||
-        url.searchParams.get("key") ||
-        "";
-
-      if (!env.API_KEY || key !== env.API_KEY) {
-        return new Response("unauthorized", { status: 401 });
-      }
-      if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("Expected websocket", { status: 400 });
-      }
-      const pair = new WebSocketPair();
-      const client = pair[0];
-      const server = pair[1];
-      server.accept();
-      server.addEventListener("message", (event) => {
-        ctx.waitUntil(handleWsMessage(event, env, ctx));
-      });
-      return new Response(null, { status: 101, webSocket: client });
-    }
-
-    if (request.method === "GET" && url.pathname === "/") {
-      if (!env.DB) {
-        return new Response("DB not found", { status: 500 });
-      }
-      const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
-      const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, shot_index FROM shots ORDER BY created_at DESC LIMIT ?"
-      ).bind(limit).all();
-
-      const rows = results.map(r => {
-        const dt = new Date(r.created_at);
-        const timeText = formatTime(dt); // HHhMM dd/mm/yy
-        const shotText = formatShot(r.shot_ms); // 00.00s
-        const idx = Number.isFinite(r.shot_index) ? `#${r.shot_index}` : "";
-        return `<tr>
-          <td>${idx}</td>
-          <td>${timeText}</td>
-          <td>${shotText}</td>
-        </tr>`;
-      }).join("");
-
-      const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-      const analysisButtonHtml = isLocal ? "" : `<div class="actions">
-            <button class="btn" id="analysisBtn">See Detailed Analysis</button>
-          </div>`;
-      const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
-            <div class="analysis-title">Detailed Analysis</div>
-            <div class="analysis-controls">
-              <label>Start brew #
-                <input id="brewStart" type="number" min="0" value="0" />
-              </label>
-              <label>Date
-                <select id="dayFilter">
-                  <option value="all">All</option>
-                </select>
-              </label>
-            </div>
-            <div class="chart-wrap">
-              <div class="chart-scroll" id="chartScroll">
-                <canvas id="chart"></canvas>
-              </div>
-              <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
-            </div>
-          </div>`;
-
-      const html = `<!doctype html>
-      <html>
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Shot Log</title>
-        <style>
-          body { font-family: Arial, sans-serif; background:#0b0b0b; color:#eaeaea; margin:0; }
-          header { padding:16px 20px; font-size:20px; font-weight:600; text-align:center; }
-          table { width:100%; border-collapse: collapse; }
-          th, td { padding:10px 12px; border-bottom:1px solid #222; text-align:left; }
-          th { color:#7fdcff; font-weight:600; }
-          tr:hover { background:#111; }
-          .wrap { max-width:900px; margin:0 auto; padding:0 16px 24px; }
-          .sub { color:#888; font-size:13px; margin-bottom:8px; }
-          .stats { color:#cfcfcf; font-size:14px; display:flex; gap:24px; flex-wrap:wrap; margin-bottom:10px; }
-          .actions { display:flex; gap:10px; margin:10px 0 14px; }
-          .btn { background:#141a1f; color:#cfefff; border:1px solid #243040; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
-          .btn:hover { background:#1c2731; }
-          .btn:active { transform: translateY(1px); }
-          .panel { margin-top:8px; }
-          .hidden { display:none; }
-          .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
-          .chart-scroll {
-            overflow-x:auto;
-            overflow-y:hidden;
-            padding-bottom:6px;
-            scrollbar-width: thin;
-            scrollbar-color: #4b6b7c #11161b;
-          }
-          .chart-scroll::-webkit-scrollbar { height: 10px; }
-          .chart-scroll::-webkit-scrollbar-track {
-            background: linear-gradient(90deg, #0f1216, #121820);
-            border-radius: 999px;
-            box-shadow: inset 0 0 0 1px #1b2530;
-          }
-          .chart-scroll::-webkit-scrollbar-thumb {
-            background: linear-gradient(90deg, #4aa3c7, #7fdcff);
-            border-radius: 999px;
-            box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
-          }
-          .chart-scroll::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(90deg, #5ab7de, #9fe6ff);
-          }
-          #chart { width:100%; height:320px; display:block; }
-          .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
-          .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
-          .analysis-controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:4px 0 10px; }
-          .analysis-controls label { color:#9aa7b3; font-size:12px; display:flex; gap:6px; align-items:center; }
-          .analysis-controls input,
-          .analysis-controls select { background:#0f1113; color:#cfefff; border:1px solid #243040; border-radius:8px; padding:6px 8px; font-size:12px; }
-          .analysis-controls input { width:64px; text-align:center; }
-          .analysis-controls input:disabled,
-          .analysis-controls select:disabled { opacity:0.5; cursor:not-allowed; }
-        </style>
-      </head>
-      <body>
-        <div class="wrap">
-          <header>BREW RECORDED - CASADIO UNDICI</header>
-          <div class="sub" id="status">Connecting...</div>
-          <div class="stats">
-            <div id="brewCounter">Brew counter: --</div>
-            <div id="avgBrew">Avg Brew Time: --.--s</div>
-          </div>
-          ${analysisButtonHtml}
-          <div id="mainView" class="panel">
-            <table>
-              <thead>
-                <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
-              </thead>
-              <tbody id="shots">
-                ${rows || `<tr><td colspan="3">No data</td></tr>`}
-              </tbody>
-            </table>
-          </div>
-          ${analysisViewHtml}
-        </div>
-
-        <script>
+const CLIENT_SCRIPT = `
           const MAX_ROWS = 300;
           const MAX_POINTS = 200;
           const seen = new Set();
@@ -462,7 +292,6 @@ export default {
             });
             const keep = chartDayKeys.includes(current) ? current : "all";
             dayFilterEl.value = keep;
-          }
           }
 
           function updateChartSize() {
@@ -759,11 +588,196 @@ export default {
             updateChartSize();
             scheduleChart();
           });
-        </script>
+        
+`;
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const origin = request.headers.get("Origin") || "";
+    const allowedOrigin = ALLOWED_ORIGIN;
+
+    // CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(origin, allowedOrigin),
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/app.js") {
+      return new Response(CLIENT_SCRIPT, {
+        headers: {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/ws") {
+      if (!env.SHOT_HUB) {
+        return new Response("Hub not bound", { status: 500 });
+      }
+      if (!isAllowedOrigin(origin, allowedOrigin)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const id = env.SHOT_HUB.idFromName(HUB_NAME);
+      return env.SHOT_HUB.get(id).fetch(request);
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/ws-ingest") {
+      const key =
+        request.headers.get("x-api-key") ||
+        url.searchParams.get("key") ||
+        "";
+
+      if (!env.API_KEY || key !== env.API_KEY) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("Expected websocket", { status: 400 });
+      }
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      server.accept();
+      server.addEventListener("message", (event) => {
+        ctx.waitUntil(handleWsMessage(event, env, ctx));
+      });
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    if (request.method === "GET" && url.pathname === "/") {
+      if (!env.DB) {
+        return new Response("DB not found", { status: 500 });
+      }
+      const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
+      const { results } = await env.DB.prepare(
+        "SELECT id, created_at, shot_ms, shot_index FROM shots ORDER BY created_at DESC LIMIT ?"
+      ).bind(limit).all();
+
+      const rows = results.map(r => {
+        const dt = new Date(r.created_at);
+        const timeText = formatTime(dt); // HHhMM dd/mm/yy
+        const shotText = formatShot(r.shot_ms); // 00.00s
+        const idx = Number.isFinite(r.shot_index) ? `#${r.shot_index}` : "";
+        return `<tr>
+          <td>${idx}</td>
+          <td>${timeText}</td>
+          <td>${shotText}</td>
+        </tr>`;
+      }).join("");
+
+      const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      const analysisButtonHtml = isLocal ? "" : `<div class="actions">
+            <button class="btn" id="analysisBtn">See Detailed Analysis</button>
+          </div>`;
+      const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
+            <div class="analysis-title">Detailed Analysis</div>
+            <div class="analysis-controls">
+              <label>Start brew #
+                <input id="brewStart" type="number" min="0" value="0" />
+              </label>
+              <label>Date
+                <select id="dayFilter">
+                  <option value="all">All</option>
+                </select>
+              </label>
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-scroll" id="chartScroll">
+                <canvas id="chart"></canvas>
+              </div>
+              <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
+            </div>
+          </div>`;
+
+      const html = `<!doctype html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Shot Log</title>
+        <style>
+          body { font-family: Arial, sans-serif; background:#0b0b0b; color:#eaeaea; margin:0; }
+          header { padding:16px 20px; font-size:20px; font-weight:600; text-align:center; }
+          table { width:100%; border-collapse: collapse; }
+          th, td { padding:10px 12px; border-bottom:1px solid #222; text-align:left; }
+          th { color:#7fdcff; font-weight:600; }
+          tr:hover { background:#111; }
+          .wrap { max-width:900px; margin:0 auto; padding:0 16px 24px; }
+          .sub { color:#888; font-size:13px; margin-bottom:8px; }
+          .stats { color:#cfcfcf; font-size:14px; display:flex; gap:24px; flex-wrap:wrap; margin-bottom:10px; }
+          .actions { display:flex; gap:10px; margin:10px 0 14px; }
+          .btn { background:#141a1f; color:#cfefff; border:1px solid #243040; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
+          .btn:hover { background:#1c2731; }
+          .btn:active { transform: translateY(1px); }
+          .panel { margin-top:8px; }
+          .hidden { display:none; }
+          .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
+          .chart-scroll {
+            overflow-x:auto;
+            overflow-y:hidden;
+            padding-bottom:6px;
+            scrollbar-width: thin;
+            scrollbar-color: #4b6b7c #11161b;
+          }
+          .chart-scroll::-webkit-scrollbar { height: 10px; }
+          .chart-scroll::-webkit-scrollbar-track {
+            background: linear-gradient(90deg, #0f1216, #121820);
+            border-radius: 999px;
+            box-shadow: inset 0 0 0 1px #1b2530;
+          }
+          .chart-scroll::-webkit-scrollbar-thumb {
+            background: linear-gradient(90deg, #4aa3c7, #7fdcff);
+            border-radius: 999px;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+          }
+          .chart-scroll::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(90deg, #5ab7de, #9fe6ff);
+          }
+          #chart { width:100%; height:320px; display:block; }
+          .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
+          .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
+          .analysis-controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:4px 0 10px; }
+          .analysis-controls label { color:#9aa7b3; font-size:12px; display:flex; gap:6px; align-items:center; }
+          .analysis-controls input,
+          .analysis-controls select { background:#0f1113; color:#cfefff; border:1px solid #243040; border-radius:8px; padding:6px 8px; font-size:12px; }
+          .analysis-controls input { width:64px; text-align:center; }
+          .analysis-controls input:disabled,
+          .analysis-controls select:disabled { opacity:0.5; cursor:not-allowed; }
+        </style>
+      </head>
+      <body>
+        <div class="wrap">
+          <header>BREW RECORDED - CASADIO UNDICI</header>
+          <div class="sub" id="status">Connecting...</div>
+          <div class="stats">
+            <div id="brewCounter">Brew counter: --</div>
+            <div id="avgBrew">Avg Brew Time: --.--s</div>
+          </div>
+          ${analysisButtonHtml}
+          <div id="mainView" class="panel">
+            <table>
+              <thead>
+                <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
+              </thead>
+              <tbody id="shots">
+                ${rows || `<tr><td colspan="3">No data</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+          ${analysisViewHtml}
+        </div>
+
+        <script src="/app.js"></script>
       </body>
       </html>`;
       return new Response(html, {
-        headers: { "Content-Type": "text/html; charset=utf-8" }
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
       });
     }
 
