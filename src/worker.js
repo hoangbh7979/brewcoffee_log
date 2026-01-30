@@ -522,6 +522,8 @@ export default {
 
             // labels
             chartCtx.fillStyle = "#7a8a99";
+            chartCtx.font = "11px Arial, sans-serif";
+            chartCtx.fillText("Brew count", padL, h - 10);
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
               const x = xFor(xVal);
               chartCtx.fillText(String(xVal), x - 4, h - 22);
@@ -542,7 +544,7 @@ export default {
               chartAxisCtx.fillStyle = "#9aa7b3";
               chartAxisCtx.font = "11px Arial, sans-serif";
               chartAxisCtx.save();
-              chartAxisCtx.translate(16, padT + plotH / 2);
+              chartAxisCtx.translate(ax - 10, padT + plotH / 2);
               chartAxisCtx.rotate(-Math.PI / 2);
               chartAxisCtx.fillText("Seconds", 0, 0);
               chartAxisCtx.restore();
