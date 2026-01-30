@@ -452,12 +452,12 @@ export default {
             if (yMax < yStep) yMax = yStep;
             const yMin = 0;
 
-            const padL = 50;
+            const padL = 10;
             const padR = 16;
             const padT = 16;
             const padB = 32;
-            const plotW = w - padL - padR;
-            const plotH = h - padT - padB;
+            const plotW = Math.max(1, w - padL - padR);
+            const plotH = Math.max(1, h - padT - padB);
 
             function xFor(x) {
               return padL + ((x - minX) / (maxX - minX)) * plotW;
@@ -470,8 +470,7 @@ export default {
             chartCtx.strokeStyle = "#22303a";
             chartCtx.lineWidth = 1;
             chartCtx.beginPath();
-            chartCtx.moveTo(padL, padT);
-            chartCtx.lineTo(padL, padT + plotH);
+            chartCtx.moveTo(padL, padT + plotH);
             chartCtx.lineTo(padL + plotW, padT + plotH);
             chartCtx.stroke();
 
