@@ -80,16 +80,9 @@ export default {
               <label>Start brew #
                 <input id="brewStart" type="number" min="0" value="0" />
               </label>
-              <label>Last days
+              <label>Date
                 <select id="dayFilter">
-                  <option value="0">All</option>
-                  <option value="1">1 day</option>
-                  <option value="2">2 days</option>
-                  <option value="3">3 days</option>
-                  <option value="4">4 days</option>
-                  <option value="5">5 days</option>
-                  <option value="6">6 days</option>
-                  <option value="7">7 days</option>
+                  <option value="all">All</option>
                 </select>
               </label>
             </div>
@@ -124,7 +117,27 @@ export default {
           .panel { margin-top:8px; }
           .hidden { display:none; }
           .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
-          .chart-scroll { overflow-x:auto; overflow-y:hidden; padding-bottom:6px; }
+          .chart-scroll {
+            overflow-x:auto;
+            overflow-y:hidden;
+            padding-bottom:6px;
+            scrollbar-width: thin;
+            scrollbar-color: #4b6b7c #11161b;
+          }
+          .chart-scroll::-webkit-scrollbar { height: 10px; }
+          .chart-scroll::-webkit-scrollbar-track {
+            background: linear-gradient(90deg, #0f1216, #121820);
+            border-radius: 999px;
+            box-shadow: inset 0 0 0 1px #1b2530;
+          }
+          .chart-scroll::-webkit-scrollbar-thumb {
+            background: linear-gradient(90deg, #4aa3c7, #7fdcff);
+            border-radius: 999px;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+          }
+          .chart-scroll::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(90deg, #5ab7de, #9fe6ff);
+          }
           #chart { width:100%; height:320px; display:block; }
           .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
           .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
@@ -132,6 +145,9 @@ export default {
           .analysis-controls label { color:#9aa7b3; font-size:12px; display:flex; gap:6px; align-items:center; }
           .analysis-controls input,
           .analysis-controls select { background:#0f1113; color:#cfefff; border:1px solid #243040; border-radius:8px; padding:6px 8px; font-size:12px; }
+          .analysis-controls input { width:64px; text-align:center; }
+          .analysis-controls input:disabled,
+          .analysis-controls select:disabled { opacity:0.5; cursor:not-allowed; }
         </style>
       </head>
       <body>
@@ -178,6 +194,7 @@ export default {
           let chartRawMaxIndex = 0;
           let chartMinX = 0;
           let chartMaxX = 0;
+          let chartDayKeys = [];
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
 
           function setStatus(text) {
@@ -262,8 +279,10 @@ export default {
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
-            const ts = r.created_at ? new Date(r.created_at).getTime() : Date.now();
-            return { id: r.id || ("" + x + ":" + y), x, y: ySec, ts };
+            const dt = r.created_at ? new Date(r.created_at) : null;
+            const ts = dt ? dt.getTime() : Date.now();
+            const dayKey = dt ? `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}` : null;
+            return { id: r.id || ("" + x + ":" + y), x, y: ySec, ts, dayKey };
           }
 
           function resetChart() {
@@ -271,6 +290,7 @@ export default {
             chartRaw = [];
             chartRawIds = new Set();
             chartRawMaxIndex = 0;
+            chartDayKeys = [];
             applyChartFilters();
           }
 
@@ -296,6 +316,7 @@ export default {
             chartRaw = trimmed;
             chartRawIds = new Set(trimmed.map(p => p.id));
             chartRawMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
+            updateDayOptions();
             applyChartFilters();
           }
 
@@ -318,6 +339,7 @@ export default {
               removed.forEach(p => chartRawIds.delete(p.id));
             }
             if (pt.x > chartRawMaxIndex) chartRawMaxIndex = pt.x;
+            updateDayOptions();
             applyChartFilters();
           }
 
@@ -405,15 +427,39 @@ export default {
           }
 
           function getDayFilter() {
-            const raw = dayFilterEl ? parseInt(dayFilterEl.value || "0", 10) : 0;
-            return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+            if (!dayFilterEl) return "all";
+            return dayFilterEl.value || "all";
+          }
+
+          function updateDayOptions() {
+            if (!dayFilterEl) return;
+            const keys = new Set();
+            chartRaw.forEach(p => { if (p.dayKey) keys.add(p.dayKey); });
+            const sorted = Array.from(keys).sort((a, b) => b.localeCompare(a));
+            chartDayKeys = sorted.slice(0, 7);
+            const current = dayFilterEl.value || "all";
+            dayFilterEl.innerHTML = "";
+            const optAll = document.createElement("option");
+            optAll.value = "all";
+            optAll.textContent = "All";
+            dayFilterEl.appendChild(optAll);
+            chartDayKeys.forEach(k => {
+              const opt = document.createElement("option");
+              opt.value = k;
+              const parts = k.split("-");
+              opt.textContent = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : k;
+              dayFilterEl.appendChild(opt);
+            });
+            const keep = chartDayKeys.includes(current) ? current : "all";
+            dayFilterEl.value = keep;
+          }
           }
 
           function updateChartSize() {
             if (!ENABLE_ANALYSIS || !chartCanvas || !chartScroll) return;
             const containerW = chartScroll.clientWidth || 0;
             const span = Math.max(1, (chartMaxX - chartMinX + 1));
-            const spacing = 26;
+            const spacing = 30;
             const desired = span * spacing + 70;
             const width = Math.max(containerW, desired);
             chartCanvas.style.width = width + "px";
@@ -424,22 +470,32 @@ export default {
           function applyChartFilters() {
             if (!ENABLE_ANALYSIS) return;
             const minBrew = getMinBrew();
-            const days = getDayFilter();
-            const minTs = days > 0 ? (Date.now() - days * 24 * 60 * 60 * 1000) : null;
-            const filtered = chartRaw.filter(pt => {
-              if (pt.x < minBrew) return false;
-              if (minTs && (!pt.ts || pt.ts < minTs)) return false;
-              return true;
-            });
-            filtered.sort((a, b) => a.x - b.x);
-            chartPoints = filtered;
-            if (chartPoints.length === 0) {
-              chartMinX = minBrew;
-              chartMaxX = minBrew + 1;
+            const dayKey = getDayFilter();
+            const useDay = dayKey !== "all";
+            if (brewStartEl) brewStartEl.disabled = useDay;
+            let filtered = chartRaw;
+            if (useDay) {
+              filtered = chartRaw.filter(pt => pt.dayKey === dayKey);
+              filtered.sort((a, b) => (b.ts - a.ts) || (b.x - a.x));
+              chartPoints = filtered.map((p, i) => ({
+                ...p,
+                plotX: i,
+                label: p.x
+              }));
+              chartMinX = 0;
+              chartMaxX = Math.max(1, chartPoints.length - 1);
             } else {
-              const minPointX = chartPoints[0].x;
-              chartMinX = Math.min(minBrew, minPointX);
-              chartMaxX = chartPoints.reduce((m, p) => (p.x > m ? p.x : m), chartMinX);
+              filtered = chartRaw.filter(pt => pt.x >= minBrew);
+              filtered.sort((a, b) => a.x - b.x);
+              chartPoints = filtered;
+              if (chartPoints.length === 0) {
+                chartMinX = minBrew;
+                chartMaxX = minBrew + 1;
+              } else {
+                const minPointX = chartPoints[0].x;
+                chartMinX = Math.min(minBrew, minPointX);
+                chartMaxX = chartPoints.reduce((m, p) => (p.x > m ? p.x : m), chartMinX);
+              }
             }
             updateChartSize();
             if (analysisView && !analysisView.classList.contains('hidden')) {
@@ -468,7 +524,8 @@ export default {
             let maxX = chartMaxX;
             let maxY = chartPoints[0].y;
             for (const p of chartPoints) {
-              if (p.x > maxX) maxX = p.x;
+              const px = Number.isFinite(p.plotX) ? p.plotX : p.x;
+              if (px > maxX) maxX = px;
               if (p.y > maxY) maxY = p.y;
             }
             if (!Number.isFinite(minX)) minX = 0;
@@ -521,7 +578,8 @@ export default {
             chartCtx.lineWidth = 2;
             chartCtx.beginPath();
             chartPoints.forEach((p, i) => {
-              const x = xFor(p.x);
+              const px = Number.isFinite(p.plotX) ? p.plotX : p.x;
+              const x = xFor(px);
               const y = yFor(p.y);
               if (i === 0) chartCtx.moveTo(x, y);
               else chartCtx.lineTo(x, y);
@@ -531,7 +589,8 @@ export default {
             // points
             chartCtx.fillStyle = "#7fdcff";
             for (const p of chartPoints) {
-              const x = xFor(p.x);
+              const px = Number.isFinite(p.plotX) ? p.plotX : p.x;
+              const x = xFor(px);
               const y = yFor(p.y);
               chartCtx.beginPath();
               chartCtx.arc(x, y, 2.5, 0, Math.PI * 2);
@@ -543,7 +602,7 @@ export default {
             chartCtx.font = "11px Arial, sans-serif";
             chartCtx.fillText("Brew number", padL, h - 10);
             chartCtx.save();
-            chartCtx.translate(20, padT + plotH / 2);
+            chartCtx.translate(26, padT + plotH / 2);
             chartCtx.rotate(-Math.PI / 2);
             chartCtx.textAlign = "center";
             chartCtx.textBaseline = "middle";
@@ -552,9 +611,18 @@ export default {
 
             // axis min/max
             chartCtx.fillStyle = "#7a8a99";
-            for (let xVal = minX; xVal <= maxX; xVal += 1) {
-              const x = xFor(xVal);
-              chartCtx.fillText(String(xVal), x - 4, h - 22);
+            if (dayFilterEl && dayFilterEl.value !== "all") {
+              for (const p of chartPoints) {
+                const px = Number.isFinite(p.plotX) ? p.plotX : p.x;
+                const x = xFor(px);
+                const label = (p.label !== undefined && p.label !== null) ? p.label : p.x;
+                chartCtx.fillText(String(label), x - 4, h - 22);
+              }
+            } else {
+              for (let xVal = minX; xVal <= maxX; xVal += 1) {
+                const x = xFor(xVal);
+                chartCtx.fillText(String(xVal), x - 4, h - 22);
+              }
             }
             for (let i = 0; i <= gridY; i++) {
               const yVal = yMin + i * yStep;
