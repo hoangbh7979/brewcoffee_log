@@ -636,6 +636,7 @@ export default {
                     
                               let wsFastPoll = null;
                               let wsRetryDelay = 300;
+                              let wsConnectTimer = null;
 
                               async function fastPollLatest() {
                                 try {
@@ -664,10 +665,34 @@ export default {
           function connectWs() {
             setStatus("Connecting...");
             const proto = location.protocol === "https:" ? "wss" : "ws";
-            const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
+            let ws = null;
+            try {
+              ws = new WebSocket(proto + "://" + location.host + "/api/ws");
+            } catch (e) {
+              setStatus("Polling...");
+              startFastPoll();
+              const delay = wsRetryDelay || 300;
+              setTimeout(connectWs, delay);
+              wsRetryDelay = Math.min((wsRetryDelay || 300) * 2, 2000);
+              return;
+            }
             window._shotWs = ws;
             stopFastPoll();
+            if (wsConnectTimer) {
+              clearTimeout(wsConnectTimer);
+              wsConnectTimer = null;
+            }
+            wsConnectTimer = setTimeout(() => {
+              if (ws && ws.readyState !== 1) {
+                setStatus("Polling...");
+                startFastPoll();
+              }
+            }, 2000);
             ws.onopen = () => {
+              if (wsConnectTimer) {
+                clearTimeout(wsConnectTimer);
+                wsConnectTimer = null;
+              }
               setStatus("Live");
               wsRetryDelay = 300;
               if (window._shotWsPing) {
@@ -688,6 +713,10 @@ export default {
               }
             };
             ws.onclose = () => {
+              if (wsConnectTimer) {
+                clearTimeout(wsConnectTimer);
+                wsConnectTimer = null;
+              }
               setStatus("Reconnecting...");
               if (window._shotWsPing) {
                 clearInterval(window._shotWsPing);
@@ -699,7 +728,8 @@ export default {
               wsRetryDelay = Math.min((wsRetryDelay || 300) * 2, 2000);
             };
             ws.onerror = () => {
-              ws.close();
+              setStatus("Reconnecting...");
+              try { ws.close(); } catch (e) {}
             };
           }
 
