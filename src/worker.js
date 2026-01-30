@@ -541,18 +541,11 @@ export default {
               chartAxisCtx.moveTo(ax - 1, padT);
               chartAxisCtx.lineTo(ax - 1, padT + plotH);
               chartAxisCtx.stroke();
-              chartAxisCtx.fillStyle = "#9aa7b3";
-              chartAxisCtx.font = "11px Arial, sans-serif";
-              chartAxisCtx.save();
-              chartAxisCtx.translate(ax - 10, padT + plotH / 2);
-              chartAxisCtx.rotate(-Math.PI / 2);
-              chartAxisCtx.fillText("Seconds", 0, 0);
-              chartAxisCtx.restore();
               chartAxisCtx.fillStyle = "#7a8a99";
               for (let i = 0; i <= gridY; i++) {
                 const yVal = yMin + i * yStep;
                 const y = yFor(yVal);
-                chartAxisCtx.fillText(String(yVal), 6, y + 4);
+                chartAxisCtx.fillText(String(yVal) + "s", ax - 6, y + 4);
               }
             }
           }
