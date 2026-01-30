@@ -458,6 +458,7 @@ export default {
             const padB = 32;
             const plotW = Math.max(1, w - padL - padR);
             const plotH = Math.max(1, h - padT - padB);
+            const axisX = padL;
 
             function xFor(x) {
               return padL + ((x - minX) / (maxX - minX)) * plotW;
