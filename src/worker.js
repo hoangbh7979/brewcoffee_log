@@ -8,6 +8,7 @@ const CLIENT_SCRIPT = `
           const MAX_POINTS = 200;
           const FAST_POLL_MS = 500;
           const POLL_LIMIT = 50;
+          const CHART_DEBOUNCE_MS = 120;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
@@ -28,6 +29,9 @@ const CLIENT_SCRIPT = `
           let chartMinX = 0;
           let chartMaxX = 0;
           let chartDayKeys = [];
+          let chartDirty = false;
+          let chartUpdateTimer = null;
+          let dayOptionsTimer = null;
           let lastSeenCreatedAt = 0;
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
 
@@ -55,6 +59,10 @@ const CLIENT_SCRIPT = `
             if (analysisView) analysisView.classList.remove('hidden');
             if (analysisBtn) analysisBtn.textContent = "Back to main";
             resizeChart();
+            if (chartDirty) {
+              updateDayOptions();
+              chartDirty = false;
+            }
             applyChartFilters();
           }
 
@@ -141,7 +149,9 @@ const CLIENT_SCRIPT = `
             chartRawIds = new Set();
             chartRawMaxIndex = 0;
             chartDayKeys = [];
-            applyChartFilters();
+            chartDirty = true;
+            scheduleDayOptionsUpdate();
+            scheduleChartUpdate();
           }
 
           function filterToLatestSession(data) {
@@ -167,7 +177,8 @@ const CLIENT_SCRIPT = `
             chartRawIds = new Set(trimmed.map(p => p.id));
             chartRawMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
             updateDayOptions();
-            applyChartFilters();
+            chartDirty = true;
+            scheduleChartUpdate();
           }
 
           function addChartPoint(r) {
@@ -181,16 +192,20 @@ const CLIENT_SCRIPT = `
             const pt = toPoint(r);
             if (!pt || chartRawIds.has(pt.id)) return;
             chartRawIds.add(pt.id);
-            chartRaw.push(pt);
-            chartRaw.sort((a, b) => a.x - b.x);
+            if (pt.x >= chartRawMaxIndex) {
+              chartRaw.push(pt);
+            } else {
+              chartRaw.push(pt);
+              chartRaw.sort((a, b) => a.x - b.x);
+            }
             if (chartRaw.length > MAX_POINTS) {
               const excess = chartRaw.length - MAX_POINTS;
               const removed = chartRaw.splice(0, excess);
               removed.forEach(p => chartRawIds.delete(p.id));
             }
             if (pt.x > chartRawMaxIndex) chartRawMaxIndex = pt.x;
-            updateDayOptions();
-            applyChartFilters();
+            scheduleDayOptionsUpdate();
+            scheduleChartUpdate();
           }
 
           function prependRow(r) {
@@ -264,6 +279,32 @@ const CLIENT_SCRIPT = `
               chartScheduled = false;
               drawChart();
             });
+          }
+
+          function scheduleChartUpdate() {
+            if (!ENABLE_ANALYSIS) return;
+            if (!analysisView || analysisView.classList.contains('hidden')) {
+              chartDirty = true;
+              return;
+            }
+            if (chartUpdateTimer) return;
+            chartUpdateTimer = setTimeout(() => {
+              chartUpdateTimer = null;
+              applyChartFilters();
+            }, CHART_DEBOUNCE_MS);
+          }
+
+          function scheduleDayOptionsUpdate() {
+            if (!dayFilterEl) return;
+            if (!analysisView || analysisView.classList.contains('hidden')) {
+              chartDirty = true;
+              return;
+            }
+            if (dayOptionsTimer) return;
+            dayOptionsTimer = setTimeout(() => {
+              dayOptionsTimer = null;
+              updateDayOptions();
+            }, 250);
           }
 
           function resizeChart() {
