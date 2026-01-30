@@ -55,7 +55,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, shot_index FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
@@ -214,7 +214,7 @@ export default {
             const dt = new Date(r.created_at);
             const timeText = formatTime(dt);
             const shotText = formatShot(r.shot_ms);
-            const idx = Number.isFinite(r.shot_index) ? '#' + r.shot_index : '';
+            const idx = Number.isFinite(r.brew_counter) ? '#' + r.brew_counter : '';
             return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
           }
 
@@ -226,7 +226,7 @@ export default {
 
           function toPoint(r) {
             if (!r) return null;
-            const x = Number(r.shot_index);
+            const x = Number(r.brew_counter);
             const y = Number(r.shot_ms);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             const ySec = Math.floor(y / 10) / 100;
@@ -241,8 +241,6 @@ export default {
           }
 
           function filterToLatestSession(data) {
-            const idx = data.findIndex(r => Number(r.shot_index) === 1);
-            if (idx >= 0) return data.slice(0, idx + 1);
             return data;
           }
 
@@ -613,7 +611,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, shot_index, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
@@ -732,9 +730,7 @@ function preparePayload(payload) {
   const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
   const shotEpochSec = num(payload.epoch ?? payload.ts);
   const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
-  const deviceId = payload.device_id ? String(payload.device_id) : null;
-  const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index);
-  const bootId = num(payload.boot_id ?? payload.bootId ?? payload.boot);
+  const shotIndex = num(payload.shot_index ?? payload.shotIndex ?? payload.index ?? payload.brew_counter ?? payload.brewCounter);
   const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
   const avgMs = num(payload.avg_ms ?? payload.avgMs);
 
@@ -744,10 +740,10 @@ function preparePayload(payload) {
 
   let id = payload.id ? String(payload.id) : null;
   if (!id) {
-    if (deviceId && Number.isFinite(bootId) && Number.isFinite(shotIndex)) {
-      id = `${deviceId}:${bootId}:${shotIndex}`;
-    } else if (deviceId && Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
-      id = `${deviceId}:${shotIndex}:${shotEpochSec}`;
+    if (Number.isFinite(shotIndex) && Number.isFinite(shotEpochSec)) {
+      id = `${shotIndex}:${shotEpochSec}`;
+    } else if (Number.isFinite(shotIndex) && Number.isFinite(createdAtMs)) {
+      id = `${shotIndex}:${createdAtMs}`;
     } else {
       id = crypto.randomUUID();
     }
@@ -758,7 +754,6 @@ function preparePayload(payload) {
     created_at: createdAtMs,
     shot_ms: shotMs,
     shot_index: shotIndex,
-    boot_id: bootId,
     brew_counter: brewCounter,
     avg_ms: avgMs,
   });
@@ -768,9 +763,7 @@ function preparePayload(payload) {
     id,
     createdAtMs,
     shotMs,
-    deviceId,
     shotIndex,
-    bootId,
     brewCounter,
     avgMs,
     payloadJson: JSON.stringify(payload),
@@ -788,14 +781,11 @@ async function broadcastShot(hubMessage, env) {
 
 async function insertShot(prep, env) {
   return env.DB.prepare(
-    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, device_id, shot_index, boot_id, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?, ?)"
   ).bind(
     prep.id,
     prep.createdAtMs,
     prep.shotMs,
-    prep.deviceId,
-    prep.shotIndex,
-    prep.bootId,
     prep.brewCounter,
     prep.avgMs,
     prep.payloadJson
