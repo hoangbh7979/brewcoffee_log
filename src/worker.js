@@ -77,7 +77,9 @@ export default {
       const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
             <div class="analysis-title">Detailed Analysis</div>
             <div class="chart-wrap">
-              <canvas id="chart"></canvas>
+              <div class="chart-scroll" id="chartScroll">
+                <canvas id="chart"></canvas>
+              </div>
               <div class="chart-legend">X: Brew number, Y: Shot seconds</div>
             </div>
           </div>`;
@@ -105,6 +107,10 @@ export default {
           .panel { margin-top:8px; }
           .hidden { display:none; }
           .chart-wrap { background:#0f1113; border:1px solid #1f2a33; border-radius:12px; padding:12px; }
+          .chart-scroll { overflow-x:auto; overflow-y:hidden; padding-bottom:6px; }
+          .chart-scroll::-webkit-scrollbar { height: 8px; }
+          .chart-scroll::-webkit-scrollbar-track { background:#10161c; border-radius:999px; }
+          .chart-scroll::-webkit-scrollbar-thumb { background:#2e4a5a; border-radius:999px; }
           #chart { width:100%; height:320px; display:block; }
           .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
           .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
@@ -143,6 +149,7 @@ export default {
           const analysisView = document.getElementById('analysisView');
           const analysisBtn = document.getElementById('analysisBtn');
           const chartCanvas = document.getElementById('chart');
+          const chartScroll = document.getElementById('chartScroll');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
           let chartPoints = [];
           let chartIds = new Set();
@@ -264,6 +271,7 @@ export default {
             chartIds = new Set(trimmed.map(p => p.id));
             chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
             if (analysisView && !analysisView.classList.contains('hidden')) {
+              updateChartSize();
               scheduleChart();
             }
           }
@@ -288,6 +296,7 @@ export default {
             }
             if (pt.x > chartMaxIndex) chartMaxIndex = pt.x;
             if (analysisView && !analysisView.classList.contains('hidden')) {
+              updateChartSize();
               scheduleChart();
             }
           }
@@ -367,6 +376,22 @@ export default {
             });
           }
 
+          function updateChartSize() {
+            if (!ENABLE_ANALYSIS) return;
+            if (!chartCanvas || !chartCtx) return;
+            if (!chartScroll) return;
+            const containerW = chartScroll.clientWidth || 0;
+            const minX = 0;
+            const maxX = chartPoints.length > 0 ? chartPoints.reduce((m, p) => (p.x > m ? p.x : m), 0) : 0;
+            const span = Math.max(1, (maxX - minX + 1));
+            const spacing = 28;
+            const desired = span * spacing + 70;
+            const width = Math.max(containerW, desired);
+            chartCanvas.style.width = width + "px";
+            chartCanvas.style.height = "320px";
+            resizeChart();
+          }
+
           function resizeChart() {
             if (!ENABLE_ANALYSIS) return;
             if (!chartCanvas || !chartCtx) return;
@@ -404,7 +429,7 @@ export default {
               if (p.y > maxY) maxY = p.y;
             }
             if (minX === maxX) { maxX = minX + 1; }
-            const yStep = 5;
+            const yStep = 2;
             let yMax = Math.ceil(maxY / yStep) * yStep;
             if (yMax < yStep) yMax = yStep;
             const yMin = 0;
@@ -566,7 +591,7 @@ export default {
           setInterval(loadShots, 30000);
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
-            resizeChart();
+            updateChartSize();
             scheduleChart();
           });
         </script>
