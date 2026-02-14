@@ -174,6 +174,8 @@ export default {
             if (analysisBtn) analysisBtn.textContent = "Back to main";
             updateChartSize();
             resizeChart();
+            if (chartScroll) chartScroll.scrollLeft = 0;
+            if (dayChartScroll) dayChartScroll.scrollLeft = 0;
             scheduleChart();
           }
 
@@ -459,10 +461,16 @@ export default {
             }
           }
 
+          function getDayDisplayPoints() {
+            if (!Array.isArray(dayChartPoints) || dayChartPoints.length === 0) return [];
+            const minX = dayChartPoints.reduce((m, p) => (p.x < m ? p.x : m), dayChartPoints[0].x);
+            return dayChartPoints.map(p => ({ id: p.id, x: (p.x - minX + 1), y: p.y }));
+          }
+
           function updateChartSize() {
             if (!ENABLE_ANALYSIS) return;
             updateSingleChartSize(chartCanvas, chartAxisCanvas, chartScroll, chartPoints);
-            updateSingleChartSize(dayChartCanvas, dayChartAxisCanvas, dayChartScroll, dayChartPoints);
+            updateSingleChartSize(dayChartCanvas, dayChartAxisCanvas, dayChartScroll, getDayDisplayPoints());
             resizeChart();
           }
 
@@ -632,7 +640,7 @@ export default {
           function drawDayChart() {
             if (!ENABLE_ANALYSIS) return;
             const label = dayChartLabel ? ("Shot index (" + dayChartLabel + ")") : "Shot index (day)";
-            drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, dayChartPoints, label);
+            drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, getDayDisplayPoints(), label);
           }
 
                     
