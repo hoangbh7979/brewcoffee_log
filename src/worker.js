@@ -82,6 +82,13 @@ export default {
                 <canvas id="chart"></canvas>
               </div>
             </div>
+            <div class="analysis-subtitle">Daily Analysis (latest day)</div>
+            <div class="chart-wrap">
+              <canvas id="dayChartAxis"></canvas>
+              <div class="chart-scroll" id="dayChartScroll">
+                <canvas id="dayChart"></canvas>
+              </div>
+            </div>
           </div>`;
 
       const html = `<!doctype html>
@@ -115,6 +122,7 @@ export default {
           #chart { width:100%; height:320px; display:block; }
           .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
           .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
+          .analysis-subtitle { color:#9fbfd4; font-weight:600; margin:14px 0 8px; }
         </style>
       </head>
       <body>
@@ -152,13 +160,22 @@ export default {
           const chartCanvas = document.getElementById('chart');
           const chartAxisCanvas = document.getElementById('chartAxis');
           const chartScroll = document.getElementById('chartScroll');
+          const dayChartCanvas = document.getElementById('dayChart');
+          const dayChartAxisCanvas = document.getElementById('dayChartAxis');
+          const dayChartScroll = document.getElementById('dayChartScroll');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
           let chartAxisCtx = chartAxisCanvas ? chartAxisCanvas.getContext('2d') : null;
+          let dayChartCtx = dayChartCanvas ? dayChartCanvas.getContext('2d') : null;
+          let dayChartAxisCtx = dayChartAxisCanvas ? dayChartAxisCanvas.getContext('2d') : null;
           let chartPoints = [];
           let chartIds = new Set();
+          let dayChartPoints = [];
+          let dayChartIds = new Set();
+          let dayChartMaxIndex = 0;
+          let dayChartLabel = "";
           let chartScheduled = false;
           let chartMaxIndex = 0;
-          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas;
+          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayChartCanvas;
 
           function setStatus(text) {
             if (statusEl) statusEl.textContent = text;
@@ -245,10 +262,29 @@ export default {
             return { id: key, x, y: ySec };
           }
 
+          function dateKey(v) {
+            const d = new Date(v);
+            if (!Number.isFinite(d.getTime())) return "";
+            const y = d.getFullYear();
+            const m = pad2(d.getMonth() + 1);
+            const day = pad2(d.getDate());
+            return y + "-" + m + "-" + day;
+          }
+
+          function dateLabel(v) {
+            const d = new Date(v);
+            if (!Number.isFinite(d.getTime())) return "";
+            return pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(-2);
+          }
+
           function resetChart() {
             chartPoints = [];
             chartIds = new Set();
             chartMaxIndex = 0;
+            dayChartPoints = [];
+            dayChartIds = new Set();
+            dayChartMaxIndex = 0;
+            dayChartLabel = "";
             scheduleChart();
           }
 
@@ -274,6 +310,26 @@ export default {
             chartPoints = trimmed;
             chartIds = new Set(trimmed.map(p => p.id));
             chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
+
+            const latestDayKey = data.length > 0 ? dateKey(data[0].created_at) : "";
+            dayChartLabel = data.length > 0 ? dateLabel(data[0].created_at) : "";
+            const dayRowsDesc = latestDayKey ? data.filter(r => dateKey(r && r.created_at) === latestDayKey) : [];
+            const dayRows = dayRowsDesc.slice().reverse();
+            const dayPts = [];
+            const dayIds = new Set();
+            dayRows.forEach((r, i) => {
+              const y = Number(r && r.shot_ms);
+              if (!Number.isFinite(y)) return;
+              const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
+              if (dayIds.has(key)) return;
+              dayIds.add(key);
+              dayPts.push({ id: key, x: i + 1, y: Math.floor(y / 10) / 100 });
+            });
+            const dayTrimmed = dayPts.length > MAX_POINTS ? dayPts.slice(dayPts.length - MAX_POINTS) : dayPts;
+            dayChartPoints = dayTrimmed;
+            dayChartIds = new Set(dayTrimmed.map(p => p.id));
+            dayChartMaxIndex = dayTrimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
+
             if (analysisView && !analysisView.classList.contains('hidden')) {
               updateChartSize();
               scheduleChart();
@@ -299,6 +355,29 @@ export default {
               removed.forEach(p => chartIds.delete(p.id));
             }
             if (pt.x > chartMaxIndex) chartMaxIndex = pt.x;
+
+            const dk = dateKey(r && r.created_at);
+            if (dk) {
+              const dl = dateLabel(r.created_at);
+              if (!dayChartLabel || dayChartLabel !== dl) {
+                dayChartPoints = [];
+                dayChartIds = new Set();
+                dayChartMaxIndex = 0;
+                dayChartLabel = dl;
+              }
+              const dkey = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
+              if (!dayChartIds.has(dkey)) {
+                dayChartIds.add(dkey);
+                dayChartPoints.push({ id: dkey, x: dayChartMaxIndex + 1, y: pt.y });
+                dayChartMaxIndex += 1;
+                if (dayChartPoints.length > MAX_POINTS) {
+                  const excess = dayChartPoints.length - MAX_POINTS;
+                  const removed = dayChartPoints.splice(0, excess);
+                  removed.forEach(p => dayChartIds.delete(p.id));
+                }
+              }
+            }
+
             if (analysisView && !analysisView.classList.contains('hidden')) {
               updateChartSize();
               scheduleChart();
@@ -378,76 +457,84 @@ export default {
             requestAnimationFrame(() => {
               chartScheduled = false;
               drawChart();
+              drawDayChart();
             });
           }
 
-          function updateChartSize() {
-            if (!ENABLE_ANALYSIS) return;
-            if (!chartCanvas || !chartCtx) return;
-            if (!chartScroll) return;
-            const containerW = chartScroll.clientWidth || 0;
+          function updateSingleChartSize(canvas, axisCanvas, scrollEl, points) {
+            if (!canvas || !scrollEl) return;
+            const containerW = scrollEl.clientWidth || 0;
             const minX = 0;
-            const maxX = chartPoints.length > 0 ? chartPoints.reduce((m, p) => (p.x > m ? p.x : m), 0) : 0;
+            const maxX = points.length > 0 ? points.reduce((m, p) => (p.x > m ? p.x : m), 0) : 0;
             const span = Math.max(1, (maxX - minX + 1));
             const spacing = 28;
             const desired = span * spacing + 70;
             const width = Math.max(containerW, desired);
-            chartCanvas.style.width = width + "px";
-            chartCanvas.style.height = "320px";
-            if (chartAxisCanvas) {
-              chartAxisCanvas.style.width = "50px";
-              chartAxisCanvas.style.height = "320px";
+            canvas.style.width = width + "px";
+            canvas.style.height = "320px";
+            if (axisCanvas) {
+              axisCanvas.style.width = "50px";
+              axisCanvas.style.height = "320px";
             }
+          }
+
+          function updateChartSize() {
+            if (!ENABLE_ANALYSIS) return;
+            updateSingleChartSize(chartCanvas, chartAxisCanvas, chartScroll, chartPoints);
+            updateSingleChartSize(dayChartCanvas, dayChartAxisCanvas, dayChartScroll, dayChartPoints);
             resizeChart();
           }
 
           function resizeChart() {
             if (!ENABLE_ANALYSIS) return;
-            if (!chartCanvas || !chartCtx) return;
             const dpr = window.devicePixelRatio || 1;
-            const w = chartCanvas.clientWidth || 0;
-            const h = chartCanvas.clientHeight || 0;
-            if (w === 0 || h === 0) return;
-            chartCanvas.width = Math.floor(w * dpr);
-            chartCanvas.height = Math.floor(h * dpr);
-            chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            if (chartAxisCanvas && chartAxisCtx) {
-              const aw = chartAxisCanvas.clientWidth || 0;
-              const ah = chartAxisCanvas.clientHeight || 0;
-              if (aw > 0 && ah > 0) {
-                chartAxisCanvas.width = Math.floor(aw * dpr);
-                chartAxisCanvas.height = Math.floor(ah * dpr);
-                chartAxisCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            function resizeOne(canvas, ctx, axisCanvas, axisCtx) {
+              if (!canvas || !ctx) return;
+              const w = canvas.clientWidth || 0;
+              const h = canvas.clientHeight || 0;
+              if (w === 0 || h === 0) return;
+              canvas.width = Math.floor(w * dpr);
+              canvas.height = Math.floor(h * dpr);
+              ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+              if (axisCanvas && axisCtx) {
+                const aw = axisCanvas.clientWidth || 0;
+                const ah = axisCanvas.clientHeight || 0;
+                if (aw > 0 && ah > 0) {
+                  axisCanvas.width = Math.floor(aw * dpr);
+                  axisCanvas.height = Math.floor(ah * dpr);
+                  axisCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                }
               }
             }
+            resizeOne(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx);
+            resizeOne(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx);
           }
 
-          function drawChart() {
-            if (!ENABLE_ANALYSIS) return;
-            if (!chartCanvas || !chartCtx) return;
-            const w = chartCanvas.clientWidth || 0;
-            const h = chartCanvas.clientHeight || 0;
+          function drawLineChart(canvas, ctx, axisCanvas, axisCtx, points, xLabel) {
+            if (!canvas || !ctx) return;
+            const w = canvas.clientWidth || 0;
+            const h = canvas.clientHeight || 0;
             if (w === 0 || h === 0) return;
-            chartCtx.clearRect(0, 0, w, h);
-            chartCtx.fillStyle = "#0f1113";
-            chartCtx.fillRect(0, 0, w, h);
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = "#0f1113";
+            ctx.fillRect(0, 0, w, h);
 
-            if (chartPoints.length === 0) {
-              chartCtx.fillStyle = "#7a8a99";
-              chartCtx.font = "12px Arial, sans-serif";
-              chartCtx.fillText("No data yet", 12, 20);
+            if (points.length === 0) {
+              ctx.fillStyle = "#7a8a99";
+              ctx.font = "12px Arial, sans-serif";
+              ctx.fillText("No data yet", 12, 20);
               return;
             }
 
             let minX = 0;
-            let maxX = chartPoints[0].x;
-            let maxY = chartPoints[0].y;
-            for (const p of chartPoints) {
+            let maxX = points[0].x;
+            let maxY = points[0].y;
+            for (const p of points) {
               if (p.x > maxX) maxX = p.x;
               if (p.y > maxY) maxY = p.y;
             }
             if (minX === maxX) { maxX = minX + 1; }
-            const yValsRaw = chartPoints.map(p => Number(p.y)).filter(v => Number.isFinite(v));
+            const yValsRaw = points.map(p => Number(p.y)).filter(v => Number.isFinite(v));
             const yVals = Array.from(new Set(yValsRaw.map(v => Math.round(v * 100) / 100))).sort((a, b) => a - b);
             let yMin = yVals.length > 0 ? yVals[0] : 0;
             let yMax = yVals.length > 0 ? yVals[yVals.length - 1] : maxY;
@@ -469,85 +556,96 @@ export default {
             }
 
             // axis line
-            chartCtx.strokeStyle = "#22303a";
-            chartCtx.lineWidth = 1;
-            chartCtx.beginPath();
-            chartCtx.moveTo(padL, padT + plotH);
-            chartCtx.lineTo(padL + plotW, padT + plotH);
-            chartCtx.stroke();
+            ctx.strokeStyle = "#22303a";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padL, padT + plotH);
+            ctx.lineTo(padL + plotW, padT + plotH);
+            ctx.stroke();
 
             // grid
-            chartCtx.strokeStyle = "#1f2a33";
-            chartCtx.lineWidth = 1;
+            ctx.strokeStyle = "#1f2a33";
+            ctx.lineWidth = 1;
             for (const yVal of yVals) {
               const y = yFor(yVal);
-              chartCtx.beginPath();
-              chartCtx.moveTo(axisX, y);
-              chartCtx.lineTo(axisX + plotW, y);
-              chartCtx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(axisX, y);
+              ctx.lineTo(axisX + plotW, y);
+              ctx.stroke();
             }
 
             // x grid (step 1)
-            chartCtx.strokeStyle = "#151d24";
+            ctx.strokeStyle = "#151d24";
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
               const x = xFor(xVal);
-              chartCtx.beginPath();
-              chartCtx.moveTo(x, padT);
-              chartCtx.lineTo(x, padT + plotH);
-              chartCtx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(x, padT);
+              ctx.lineTo(x, padT + plotH);
+              ctx.stroke();
             }
 
             // line
-            chartCtx.strokeStyle = "#7fdcff";
-            chartCtx.lineWidth = 2;
-            chartCtx.beginPath();
-            chartPoints.forEach((p, i) => {
+            ctx.strokeStyle = "#7fdcff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            points.forEach((p, i) => {
               const x = xFor(p.x);
               const y = yFor(p.y);
-              if (i === 0) chartCtx.moveTo(x, y);
-              else chartCtx.lineTo(x, y);
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
             });
-            chartCtx.stroke();
+            ctx.stroke();
 
             // points
-            chartCtx.fillStyle = "#7fdcff";
-            for (const p of chartPoints) {
+            ctx.fillStyle = "#7fdcff";
+            for (const p of points) {
               const x = xFor(p.x);
               const y = yFor(p.y);
-              chartCtx.beginPath();
-              chartCtx.arc(x, y, 2.5, 0, Math.PI * 2);
-              chartCtx.fill();
+              ctx.beginPath();
+              ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+              ctx.fill();
             }
 
             // labels
-            chartCtx.fillStyle = "#7a8a99";
-            chartCtx.font = "11px Arial, sans-serif";
-            chartCtx.fillText("Brew count", padL, h - 10);
+            ctx.fillStyle = "#7a8a99";
+            ctx.font = "11px Arial, sans-serif";
+            ctx.fillText(xLabel, padL, h - 10);
             for (let xVal = minX; xVal <= maxX; xVal += 1) {
               const x = xFor(xVal);
-              chartCtx.fillText(String(xVal), x - 4, h - 22);
+              ctx.fillText(String(xVal), x - 4, h - 22);
             }
 
-            if (chartAxisCtx && chartAxisCanvas) {
-              const ax = chartAxisCanvas.clientWidth || 0;
-              const ay = chartAxisCanvas.clientHeight || 0;
-              chartAxisCtx.clearRect(0, 0, ax, ay);
-              chartAxisCtx.fillStyle = "#0b0f13";
-              chartAxisCtx.fillRect(0, 0, ax, ay);
-              chartAxisCtx.strokeStyle = "#22303a";
-              chartAxisCtx.lineWidth = 1;
-              chartAxisCtx.beginPath();
-              chartAxisCtx.moveTo(ax - 1, padT);
-              chartAxisCtx.lineTo(ax - 1, padT + plotH);
-              chartAxisCtx.stroke();
-              chartAxisCtx.fillStyle = "#7a8a99";
-              chartAxisCtx.textAlign = "right";
-              chartAxisCtx.textBaseline = "middle";
+            if (axisCtx && axisCanvas) {
+              const ax = axisCanvas.clientWidth || 0;
+              const ay = axisCanvas.clientHeight || 0;
+              axisCtx.clearRect(0, 0, ax, ay);
+              axisCtx.fillStyle = "#0b0f13";
+              axisCtx.fillRect(0, 0, ax, ay);
+              axisCtx.strokeStyle = "#22303a";
+              axisCtx.lineWidth = 1;
+              axisCtx.beginPath();
+              axisCtx.moveTo(ax - 1, padT);
+              axisCtx.lineTo(ax - 1, padT + plotH);
+              axisCtx.stroke();
+              axisCtx.fillStyle = "#7a8a99";
+              axisCtx.textAlign = "right";
+              axisCtx.textBaseline = "middle";
               for (const yVal of yVals) {
                 const y = yFor(yVal);
-                chartAxisCtx.fillText(String(yVal) + "s", ax - 8, y - 2);
+                axisCtx.fillText(String(yVal) + "s", ax - 8, y - 2);
               }
             }
+          }
+
+          function drawChart() {
+            if (!ENABLE_ANALYSIS) return;
+            drawLineChart(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx, chartPoints, "Brew count");
+          }
+
+          function drawDayChart() {
+            if (!ENABLE_ANALYSIS) return;
+            const label = dayChartLabel ? ("Shot index (" + dayChartLabel + ")") : "Shot index (day)";
+            drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, dayChartPoints, label);
           }
 
                     
