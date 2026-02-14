@@ -53,7 +53,7 @@ export default {
       if (!env.DB) {
         return new Response("DB not found", { status: 500 });
       }
-      const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
         "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
@@ -140,7 +140,7 @@ export default {
         </div>
 
         <script>
-          const MAX_ROWS = 300;
+          const MAX_ROWS = 500;
           const MAX_POINTS = 200;
           const seen = new Set();
           const statusEl = document.getElementById('status');
@@ -324,7 +324,7 @@ export default {
 
           async function loadShots() {
             try {
-              const res = await fetch('/api/shots?limit=300', { cache: 'no-store' });
+              const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
               const json = await res.json();
               const tbody = document.getElementById('shots');
               const data = json.data || [];
@@ -447,10 +447,11 @@ export default {
               if (p.y > maxY) maxY = p.y;
             }
             if (minX === maxX) { maxX = minX + 1; }
-            const yStep = 2;
-            let yMax = Math.ceil(maxY / yStep) * yStep;
-            if (yMax < yStep) yMax = yStep;
-            const yMin = 0;
+            const yValsRaw = chartPoints.map(p => Number(p.y)).filter(v => Number.isFinite(v));
+            const yVals = Array.from(new Set(yValsRaw.map(v => Math.round(v * 100) / 100))).sort((a, b) => a - b);
+            let yMin = yVals.length > 0 ? yVals[0] : 0;
+            let yMax = yVals.length > 0 ? yVals[yVals.length - 1] : maxY;
+            if (yMin === yMax) { yMax = yMin + 1; }
 
             const padL = 10;
             const padR = 16;
@@ -478,9 +479,7 @@ export default {
             // grid
             chartCtx.strokeStyle = "#1f2a33";
             chartCtx.lineWidth = 1;
-            const gridY = Math.round((yMax - yMin) / yStep);
-            for (let i = 0; i <= gridY; i++) {
-              const yVal = yMin + i * yStep;
+            for (const yVal of yVals) {
               const y = yFor(yVal);
               chartCtx.beginPath();
               chartCtx.moveTo(axisX, y);
@@ -544,8 +543,7 @@ export default {
               chartAxisCtx.fillStyle = "#7a8a99";
               chartAxisCtx.textAlign = "right";
               chartAxisCtx.textBaseline = "middle";
-              for (let i = 0; i <= gridY; i++) {
-                const yVal = yMin + i * yStep;
+              for (const yVal of yVals) {
                 const y = yFor(yVal);
                 chartAxisCtx.fillText(String(yVal) + "s", ax - 8, y - 2);
               }
@@ -682,7 +680,7 @@ export default {
       if (!env.DB) {
         return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
       }
-      const limit = clampInt(url.searchParams.get("limit"), 1, 200, 300);
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
         "SELECT created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
