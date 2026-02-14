@@ -1,6 +1,7 @@
 const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 const HUB_NAME = "global";
 const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
+const DAY_TZ_OFFSET = "+7 hours";
 
 export default {
   async fetch(request, env, ctx) {
@@ -27,35 +28,13 @@ export default {
       return env.SHOT_HUB.get(id).fetch(request);
     }
 
-    if (request.method === "GET" && url.pathname === "/api/ws-ingest") {
-      const key =
-        request.headers.get("x-api-key") ||
-        url.searchParams.get("key") ||
-        "";
-
-      if (!env.API_KEY || key !== env.API_KEY) {
-        return new Response("unauthorized", { status: 401 });
-      }
-      if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("Expected websocket", { status: 400 });
-      }
-      const pair = new WebSocketPair();
-      const client = pair[0];
-      const server = pair[1];
-      server.accept();
-      server.addEventListener("message", (event) => {
-        ctx.waitUntil(handleWsMessage(event, env, ctx));
-      });
-      return new Response(null, { status: 101, webSocket: client });
-    }
-
     if (request.method === "GET" && url.pathname === "/") {
       if (!env.DB) {
         return new Response("DB not found", { status: 500 });
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
@@ -187,8 +166,9 @@ export default {
             if (analysisBtn) analysisBtn.textContent = "See Detailed Analysis";
           }
 
-          function showAnalysis() {
+          async function showAnalysis() {
             if (!ENABLE_ANALYSIS) return;
+            await loadShots();
             if (mainView) mainView.classList.add('hidden');
             if (analysisView) analysisView.classList.remove('hidden');
             if (analysisBtn) analysisBtn.textContent = "Back to main";
@@ -197,12 +177,12 @@ export default {
             scheduleChart();
           }
 
-          function toggleAnalysis() {
+          async function toggleAnalysis() {
             if (!ENABLE_ANALYSIS) return;
             if (analysisView && !analysisView.classList.contains('hidden')) {
               showMain();
             } else {
-              showAnalysis();
+              await showAnalysis();
             }
           }
 
@@ -320,10 +300,11 @@ export default {
             dayRows.forEach((r, i) => {
               const y = Number(r && r.shot_ms);
               if (!Number.isFinite(y)) return;
+              const idx = Number(r && r.shot_index);
               const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
               if (dayIds.has(key)) return;
               dayIds.add(key);
-              dayPts.push({ id: key, x: i + 1, y: Math.floor(y / 10) / 100 });
+              dayPts.push({ id: key, x: Number.isFinite(idx) ? idx : (i + 1), y: Math.floor(y / 10) / 100 });
             });
             const dayTrimmed = dayPts.length > MAX_POINTS ? dayPts.slice(dayPts.length - MAX_POINTS) : dayPts;
             dayChartPoints = dayTrimmed;
@@ -367,9 +348,12 @@ export default {
               }
               const dkey = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
               if (!dayChartIds.has(dkey)) {
+                const dayIdx = Number(r && r.shot_index);
                 dayChartIds.add(dkey);
-                dayChartPoints.push({ id: dkey, x: dayChartMaxIndex + 1, y: pt.y });
-                dayChartMaxIndex += 1;
+                const x = Number.isFinite(dayIdx) ? dayIdx : (dayChartMaxIndex + 1);
+                dayChartPoints.push({ id: dkey, x, y: pt.y });
+                dayChartPoints.sort((a, b) => a.x - b.x);
+                if (x > dayChartMaxIndex) dayChartMaxIndex = x;
                 if (dayChartPoints.length > MAX_POINTS) {
                   const excess = dayChartPoints.length - MAX_POINTS;
                   const removed = dayChartPoints.splice(0, excess);
@@ -442,13 +426,6 @@ export default {
             const yy = (""+d.getFullYear()).slice(-2);
             return \`\${hh}h\${mm} \${dd}/\${mo}/\${yy}\`;
           }
-          function escapeHtml(s){
-            return String(s || "")
-              .replace(/&/g,"&amp;")
-              .replace(/</g,"&lt;")
-              .replace(/>/g,"&gt;");
-          }
-
           function scheduleChart() {
             if (!ENABLE_ANALYSIS) return;
             if (!chartCanvas || !chartCtx) return;
@@ -726,7 +703,6 @@ export default {
 
           loadShots();
           connectWs();
-          setInterval(loadShots, 30000);
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
             updateChartSize();
@@ -786,7 +762,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
-        "SELECT created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
@@ -863,25 +839,6 @@ function json(obj, origin, allowedOrigin, status = 200) {
   });
 }
 
-async function handleWsMessage(event, env, ctx) {
-  let payload = null;
-  try {
-    payload = JSON.parse(event.data);
-  } catch {
-    return;
-  }
-  const prep = preparePayload(payload);
-  if (!prep.ok) return;
-  if (env.SHOT_HUB) {
-    await broadcastShot(prep.hubMessage, env);
-  }
-  if (env.DB && ctx) {
-    ctx.waitUntil(insertShot(prep, env));
-  } else if (env.DB) {
-    await insertShot(prep, env);
-  }
-}
-
 async function ingestPayload(payload, env, ctx) {
   const prep = preparePayload(payload);
   if (!prep.ok) return prep;
@@ -946,13 +903,25 @@ async function broadcastShot(hubMessage, env) {
 
 async function insertShot(prep, env) {
   return env.DB.prepare(
-    "INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, payload) VALUES (?, ?, ?, ?, ?, ?)"
+    `INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload)
+     VALUES (
+       ?, ?, ?, ?, ?,
+       COALESCE((
+         SELECT MAX(s.shot_index) + 1
+         FROM shots s
+         WHERE date(s.created_at / 1000, 'unixepoch', ?) = date(? / 1000, 'unixepoch', ?)
+       ), 1),
+       ?
+     )`
   ).bind(
     prep.id,
     prep.createdAtMs,
     prep.shotMs,
     prep.brewCounter,
     prep.avgMs,
+    DAY_TZ_OFFSET,
+    prep.createdAtMs,
+    DAY_TZ_OFFSET,
     prep.payloadJson
   ).run();
 }
@@ -993,9 +962,3 @@ function formatTime(d) {
   return `${hh}h${mm} ${dd}/${mo}/${yy}`;
 }
 
-function escapeHtml(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
