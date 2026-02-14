@@ -245,16 +245,20 @@ export default {
           function dateKey(v) {
             const d = new Date(v);
             if (!Number.isFinite(d.getTime())) return "";
-            const y = d.getFullYear();
-            const m = pad2(d.getMonth() + 1);
-            const day = pad2(d.getDate());
+            const t = d.getTime() + (7 * 60 * 60 * 1000);
+            const tz = new Date(t);
+            const y = tz.getUTCFullYear();
+            const m = pad2(tz.getUTCMonth() + 1);
+            const day = pad2(tz.getUTCDate());
             return y + "-" + m + "-" + day;
           }
 
           function dateLabel(v) {
             const d = new Date(v);
             if (!Number.isFinite(d.getTime())) return "";
-            return pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(-2);
+            const t = d.getTime() + (7 * 60 * 60 * 1000);
+            const tz = new Date(t);
+            return pad2(tz.getUTCDate()) + "/" + pad2(tz.getUTCMonth() + 1) + "/" + String(tz.getUTCFullYear()).slice(-2);
           }
 
           function resetChart() {
