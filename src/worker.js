@@ -535,10 +535,16 @@ export default {
             }
             if (minX === maxX) { maxX = minX + 1; }
             const yValsRaw = points.map(p => Number(p.y)).filter(v => Number.isFinite(v));
-            const yVals = Array.from(new Set(yValsRaw.map(v => Math.round(v * 100) / 100))).sort((a, b) => a - b);
-            let yMin = yVals.length > 0 ? yVals[0] : 0;
-            let yMax = yVals.length > 0 ? yVals[yVals.length - 1] : maxY;
-            if (yMin === yMax) { yMax = yMin + 1; }
+            const rawMin = yValsRaw.length > 0 ? Math.min(...yValsRaw) : 0;
+            const rawMax = yValsRaw.length > 0 ? Math.max(...yValsRaw) : maxY;
+            const yStep = 2;
+            let yMin = Math.floor(rawMin / yStep) * yStep;
+            let yMax = Math.ceil(rawMax / yStep) * yStep;
+            if (yMin === yMax) yMax = yMin + yStep;
+            const yVals = [];
+            for (let y = yMin; y <= yMax + 0.0001; y += yStep) {
+              yVals.push(Math.round(y * 100) / 100);
+            }
 
             const padL = 10;
             const padR = 16;
