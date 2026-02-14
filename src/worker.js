@@ -128,7 +128,7 @@ export default {
 
         <script>
           const MAX_ROWS = 500;
-          const MAX_POINTS = 200;
+          const MAX_POINTS = 500;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
