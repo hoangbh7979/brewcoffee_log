@@ -846,19 +846,14 @@ function json(obj, origin, allowedOrigin, status = 200) {
 async function ingestPayload(payload, env, ctx) {
   const prep = preparePayload(payload);
   if (!prep.ok) return prep;
-  if (env.SHOT_HUB && ctx) {
-    ctx.waitUntil(broadcastShot(prep.hubMessage, env));
-  } else if (env.SHOT_HUB) {
-    await broadcastShot(prep.hubMessage, env);
-  }
-  if (env.DB && ctx) {
-    ctx.waitUntil(insertShot(prep, env));
-    return { ok: true, created_at: prep.createdAtMs };
-  }
   if (!env.DB) {
     return { ok: false, error: "DB not bound", status: 500 };
   }
-  await insertShot(prep, env);
+  if (ctx) {
+    ctx.waitUntil(processIngest(prep, env));
+    return { ok: true, created_at: prep.createdAtMs };
+  }
+  await processIngest(prep, env);
   return { ok: true, created_at: prep.createdAtMs };
 }
 
@@ -877,14 +872,6 @@ function preparePayload(payload) {
     ? `${brewCounter}:${shotMs}:${createdAtMs}`
     : String(createdAtMs);
 
-  const hubMessage = JSON.stringify({
-    id,
-    created_at: createdAtMs,
-    shot_ms: shotMs,
-    brew_counter: brewCounter,
-    avg_ms: avgMs,
-  });
-
   return {
     ok: true,
     id,
@@ -893,8 +880,25 @@ function preparePayload(payload) {
     brewCounter,
     avgMs,
     payloadJson: JSON.stringify(payload),
-    hubMessage,
   };
+}
+
+function buildHubMessage(prep, shotIndex) {
+  return JSON.stringify({
+    id: prep.id,
+    created_at: prep.createdAtMs,
+    shot_ms: prep.shotMs,
+    brew_counter: prep.brewCounter,
+    avg_ms: prep.avgMs,
+    shot_index: shotIndex,
+  });
+}
+
+async function processIngest(prep, env) {
+  const shotIndex = await insertShot(prep, env);
+  if (env.SHOT_HUB) {
+    await broadcastShot(buildHubMessage(prep, shotIndex), env);
+  }
 }
 
 async function broadcastShot(hubMessage, env) {
@@ -906,7 +910,7 @@ async function broadcastShot(hubMessage, env) {
 }
 
 async function insertShot(prep, env) {
-  return env.DB.prepare(
+  await env.DB.prepare(
     `INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload)
      VALUES (
        ?, ?, ?, ?, ?,
@@ -928,6 +932,9 @@ async function insertShot(prep, env) {
     DAY_TZ_OFFSET,
     prep.payloadJson
   ).run();
+  const row = await env.DB.prepare("SELECT shot_index FROM shots WHERE id = ?").bind(prep.id).first();
+  const shotIndex = Number(row && row.shot_index);
+  return Number.isFinite(shotIndex) ? shotIndex : null;
 }
 
 function isAllowedOrigin(origin, allowedOrigin) {
