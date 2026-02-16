@@ -590,9 +590,34 @@ export default {
             ctx.moveTo(axisX, targetY);
             ctx.lineTo(axisX + plotW, targetY);
             ctx.stroke();
-            ctx.fillStyle = "#f1d44a";
+
+            // legend (top-right)
+            const legendText = "Target Time";
             ctx.font = "12px Arial, sans-serif";
-            ctx.fillText("Target Time", axisX + 8, targetY - 6);
+            const legendTextW = ctx.measureText(legendText).width;
+            const legendPad = 6;
+            const sampleW = 20;
+            const legendW = sampleW + 8 + legendTextW + legendPad * 2;
+            const legendH = 20;
+            const legendX = axisX + plotW - legendW - 6;
+            const legendY = padT + 6;
+            ctx.fillStyle = "rgba(10, 14, 18, 0.78)";
+            ctx.fillRect(legendX, legendY, legendW, legendH);
+            ctx.strokeStyle = "#23313c";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(legendX, legendY, legendW, legendH);
+            const sampleY = legendY + Math.floor(legendH / 2) + 0.5;
+            const sampleX1 = legendX + legendPad;
+            const sampleX2 = sampleX1 + sampleW;
+            ctx.strokeStyle = "#f1d44a";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(sampleX1, sampleY);
+            ctx.lineTo(sampleX2, sampleY);
+            ctx.stroke();
+            ctx.fillStyle = "#f1d44a";
+            ctx.textBaseline = "middle";
+            ctx.fillText(legendText, sampleX2 + 8, sampleY);
 
             // line
             ctx.strokeStyle = "#7fdcff";
