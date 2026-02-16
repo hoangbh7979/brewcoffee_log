@@ -68,6 +68,13 @@ export default {
                 <canvas id="dayChart"></canvas>
               </div>
             </div>
+            <div class="analysis-subtitle">Latest Date (timeline)</div>
+            <div class="chart-wrap">
+              <canvas id="dayTimeChartAxis"></canvas>
+              <div class="chart-scroll" id="dayTimeChartScroll">
+                <canvas id="dayTimeChart"></canvas>
+              </div>
+            </div>
           </div>`;
 
       const html = `<!doctype html>
@@ -130,6 +137,7 @@ export default {
           const MAX_ROWS = 500;
           const MAX_POINTS = 500;
           const TARGET_TIME_SEC = 25;
+          const DAY_TIME_MAX_HOUR = 23 + (59 / 60);
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
@@ -143,19 +151,26 @@ export default {
           const dayChartCanvas = document.getElementById('dayChart');
           const dayChartAxisCanvas = document.getElementById('dayChartAxis');
           const dayChartScroll = document.getElementById('dayChartScroll');
+          const dayTimeChartCanvas = document.getElementById('dayTimeChart');
+          const dayTimeChartAxisCanvas = document.getElementById('dayTimeChartAxis');
+          const dayTimeChartScroll = document.getElementById('dayTimeChartScroll');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
           let chartAxisCtx = chartAxisCanvas ? chartAxisCanvas.getContext('2d') : null;
           let dayChartCtx = dayChartCanvas ? dayChartCanvas.getContext('2d') : null;
           let dayChartAxisCtx = dayChartAxisCanvas ? dayChartAxisCanvas.getContext('2d') : null;
+          let dayTimeChartCtx = dayTimeChartCanvas ? dayTimeChartCanvas.getContext('2d') : null;
+          let dayTimeChartAxisCtx = dayTimeChartAxisCanvas ? dayTimeChartAxisCanvas.getContext('2d') : null;
           let chartPoints = [];
           let chartIds = new Set();
           let dayChartPoints = [];
           let dayChartIds = new Set();
           let dayChartMaxIndex = 0;
+          let dayTimeChartPoints = [];
+          let dayTimeChartIds = new Set();
           let dayChartLabel = "";
           let chartScheduled = false;
           let chartMaxIndex = 0;
-          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayChartCanvas;
+          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayChartCanvas && !!dayTimeChartCanvas;
 
           function setStatus(text) {
             if (statusEl) statusEl.textContent = text;
@@ -177,6 +192,7 @@ export default {
             resizeChart();
             if (chartScroll) chartScroll.scrollLeft = 0;
             if (dayChartScroll) dayChartScroll.scrollLeft = 0;
+            if (dayTimeChartScroll) dayTimeChartScroll.scrollLeft = 0;
             scheduleChart();
           }
 
@@ -264,6 +280,17 @@ export default {
             return pad2(tz.getUTCDate()) + "/" + pad2(tz.getUTCMonth() + 1) + "/" + String(tz.getUTCFullYear()).slice(-2);
           }
 
+          function timeOfDayHour(v) {
+            const d = new Date(v);
+            if (!Number.isFinite(d.getTime())) return null;
+            const t = d.getTime() + (7 * 60 * 60 * 1000);
+            const tz = new Date(t);
+            const hh = tz.getUTCHours();
+            const mm = tz.getUTCMinutes();
+            const ss = tz.getUTCSeconds();
+            return hh + (mm / 60) + (ss / 3600);
+          }
+
           function resetChart() {
             chartPoints = [];
             chartIds = new Set();
@@ -271,6 +298,8 @@ export default {
             dayChartPoints = [];
             dayChartIds = new Set();
             dayChartMaxIndex = 0;
+            dayTimeChartPoints = [];
+            dayTimeChartIds = new Set();
             dayChartLabel = "";
             scheduleChart();
           }
@@ -317,6 +346,21 @@ export default {
             dayChartPoints = dayTrimmed;
             dayChartIds = new Set(dayTrimmed.map(p => p.id));
             dayChartMaxIndex = dayTrimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
+            const dayTimePts = [];
+            const dayTimeIds = new Set();
+            dayRows.forEach(r => {
+              const y = Number(r && r.shot_ms);
+              const x = timeOfDayHour(r && r.created_at);
+              if (!Number.isFinite(y) || !Number.isFinite(x)) return;
+              const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
+              if (dayTimeIds.has(key)) return;
+              dayTimeIds.add(key);
+              dayTimePts.push({ id: key, x, y: Math.floor(y / 10) / 100 });
+            });
+            dayTimePts.sort((a, b) => a.x - b.x);
+            const dayTimeTrimmed = dayTimePts.length > MAX_POINTS ? dayTimePts.slice(dayTimePts.length - MAX_POINTS) : dayTimePts;
+            dayTimeChartPoints = dayTimeTrimmed;
+            dayTimeChartIds = new Set(dayTimeTrimmed.map(p => p.id));
 
             if (analysisView && !analysisView.classList.contains('hidden')) {
               updateChartSize();
@@ -351,6 +395,8 @@ export default {
                 dayChartPoints = [];
                 dayChartIds = new Set();
                 dayChartMaxIndex = 0;
+                dayTimeChartPoints = [];
+                dayTimeChartIds = new Set();
                 dayChartLabel = dl;
               }
               const dkey = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
@@ -365,6 +411,19 @@ export default {
                   const excess = dayChartPoints.length - MAX_POINTS;
                   const removed = dayChartPoints.splice(0, excess);
                   removed.forEach(p => dayChartIds.delete(p.id));
+                }
+              }
+              if (!dayTimeChartIds.has(dkey)) {
+                const dayTimeX = timeOfDayHour(r && r.created_at);
+                if (Number.isFinite(dayTimeX)) {
+                  dayTimeChartIds.add(dkey);
+                  dayTimeChartPoints.push({ id: dkey, x: dayTimeX, y: pt.y });
+                  dayTimeChartPoints.sort((a, b) => a.x - b.x);
+                  if (dayTimeChartPoints.length > MAX_POINTS) {
+                    const excess = dayTimeChartPoints.length - MAX_POINTS;
+                    const removed = dayTimeChartPoints.splice(0, excess);
+                    removed.forEach(p => dayTimeChartIds.delete(p.id));
+                  }
                 }
               }
             }
@@ -442,16 +501,20 @@ export default {
               chartScheduled = false;
               drawChart();
               drawDayChart();
+              drawDayTimeChart();
             });
           }
 
-          function updateSingleChartSize(canvas, axisCanvas, scrollEl, points) {
+          function updateSingleChartSize(canvas, axisCanvas, scrollEl, points, opts) {
             if (!canvas || !scrollEl) return;
+            const options = opts || {};
             const containerW = scrollEl.clientWidth || 0;
-            const minX = 0;
-            const maxX = points.length > 0 ? points.reduce((m, p) => (p.x > m ? p.x : m), 0) : 0;
+            const minX = Number.isFinite(options.minX) ? options.minX : 0;
+            const maxX = Number.isFinite(options.maxX)
+              ? options.maxX
+              : (points.length > 0 ? points.reduce((m, p) => (p.x > m ? p.x : m), minX) : minX);
             const span = Math.max(1, (maxX - minX + 1));
-            const spacing = 28;
+            const spacing = Number.isFinite(options.spacing) ? options.spacing : 28;
             const desired = span * spacing + 70;
             const width = Math.max(containerW, desired);
             canvas.style.width = width + "px";
@@ -472,6 +535,11 @@ export default {
             if (!ENABLE_ANALYSIS) return;
             updateSingleChartSize(chartCanvas, chartAxisCanvas, chartScroll, chartPoints);
             updateSingleChartSize(dayChartCanvas, dayChartAxisCanvas, dayChartScroll, getDayDisplayPoints());
+            updateSingleChartSize(dayTimeChartCanvas, dayTimeChartAxisCanvas, dayTimeChartScroll, dayTimeChartPoints, {
+              minX: 0,
+              maxX: DAY_TIME_MAX_HOUR,
+              spacing: 36
+            });
             resizeChart();
           }
 
@@ -498,10 +566,15 @@ export default {
             }
             resizeOne(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx);
             resizeOne(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx);
+            resizeOne(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx);
           }
 
-          function drawLineChart(canvas, ctx, axisCanvas, axisCtx, scrollEl, points, xLabel) {
+          function drawLineChart(canvas, ctx, axisCanvas, axisCtx, scrollEl, points, xLabel, opts) {
             if (!canvas || !ctx) return;
+            const options = opts || {};
+            const xMode = options.xMode === "time" ? "time" : "index";
+            const timeMinX = Number.isFinite(options.minX) ? options.minX : 0;
+            const timeMaxX = Number.isFinite(options.maxX) ? options.maxX : 24;
             const w = canvas.clientWidth || 0;
             const h = canvas.clientHeight || 0;
             if (w === 0 || h === 0) return;
@@ -516,11 +589,11 @@ export default {
               return;
             }
 
-            let minX = 0;
-            let maxX = points[0].x;
+            let minX = xMode === "time" ? timeMinX : 0;
+            let maxX = xMode === "time" ? timeMaxX : points[0].x;
             let maxY = points[0].y;
             for (const p of points) {
-              if (p.x > maxX) maxX = p.x;
+              if (xMode !== "time" && p.x > maxX) maxX = p.x;
               if (p.y > maxY) maxY = p.y;
             }
             if (minX === maxX) { maxX = minX + 1; }
@@ -572,9 +645,10 @@ export default {
               ctx.stroke();
             }
 
-            // x grid (step 1)
+            // x grid
             ctx.strokeStyle = "#151d24";
-            for (let xVal = minX; xVal <= maxX; xVal += 1) {
+            const xGridStep = xMode === "time" ? 2 : 1;
+            for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xGridStep) {
               const x = xFor(xVal);
               ctx.beginPath();
               ctx.moveTo(x, padT);
@@ -650,9 +724,18 @@ export default {
             ctx.fillStyle = "#7a8a99";
             ctx.font = "11px Arial, sans-serif";
             ctx.fillText(xLabel, padL, h - 10);
-            for (let xVal = minX; xVal <= maxX; xVal += 1) {
-              const x = xFor(xVal);
-              ctx.fillText(String(xVal), x - 4, h - 22);
+            if (xMode === "time") {
+              for (let xVal = minX; xVal <= maxX + 0.0001; xVal += 2) {
+                const x = xFor(xVal);
+                const hh = Math.round(xVal) % 24;
+                const label = pad2(hh) + ":00";
+                ctx.fillText(label, x - 14, h - 22);
+              }
+            } else {
+              for (let xVal = minX; xVal <= maxX; xVal += 1) {
+                const x = xFor(xVal);
+                ctx.fillText(String(xVal), x - 4, h - 22);
+              }
             }
 
             if (axisCtx && axisCanvas) {
@@ -686,6 +769,16 @@ export default {
             if (!ENABLE_ANALYSIS) return;
             const label = dayChartLabel ? ("Shot index (" + dayChartLabel + ")") : "Shot index (day)";
             drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, dayChartScroll, getDayDisplayPoints(), label);
+          }
+
+          function drawDayTimeChart() {
+            if (!ENABLE_ANALYSIS) return;
+            const label = dayChartLabel ? ("Time of day (" + dayChartLabel + ")") : "Time of day (day)";
+            drawLineChart(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx, dayTimeChartScroll, dayTimeChartPoints, label, {
+              xMode: "time",
+              minX: 0,
+              maxX: DAY_TIME_MAX_HOUR
+            });
           }
 
                     
@@ -778,6 +871,12 @@ export default {
           }
           if (dayChartScroll) {
             dayChartScroll.addEventListener('scroll', () => {
+              if (!ENABLE_ANALYSIS) return;
+              scheduleChart();
+            }, { passive: true });
+          }
+          if (dayTimeChartScroll) {
+            dayTimeChartScroll.addEventListener('scroll', () => {
               if (!ENABLE_ANALYSIS) return;
               scheduleChart();
             }, { passive: true });
