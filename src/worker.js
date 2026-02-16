@@ -575,6 +575,12 @@ export default {
             const xMode = options.xMode === "time" ? "time" : "index";
             const timeMinX = Number.isFinite(options.minX) ? options.minX : 0;
             const timeMaxX = Number.isFinite(options.maxX) ? options.maxX : 24;
+            const xGridStep = Number.isFinite(options.xGridStep) ? options.xGridStep : (xMode === "time" ? 2 : 1);
+            const xLabelStep = Number.isFinite(options.xLabelStep) ? options.xLabelStep : (xMode === "time" ? 2 : 1);
+            const showLine = options.showLine !== false;
+            const lineColor = typeof options.lineColor === "string" ? options.lineColor : "#7fdcff";
+            const pointColor = typeof options.pointColor === "string" ? options.pointColor : "#7fdcff";
+            const pointRadius = Number.isFinite(options.pointRadius) ? options.pointRadius : 2.5;
             const w = canvas.clientWidth || 0;
             const h = canvas.clientHeight || 0;
             if (w === 0 || h === 0) return;
@@ -647,7 +653,6 @@ export default {
 
             // x grid
             ctx.strokeStyle = "#151d24";
-            const xGridStep = xMode === "time" ? 2 : 1;
             for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xGridStep) {
               const x = xFor(xVal);
               ctx.beginPath();
@@ -699,24 +704,26 @@ export default {
             ctx.textBaseline = "alphabetic";
 
             // line
-            ctx.strokeStyle = "#7fdcff";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            points.forEach((p, i) => {
-              const x = xFor(p.x);
-              const y = yFor(p.y);
-              if (i === 0) ctx.moveTo(x, y);
-              else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
+            if (showLine) {
+              ctx.strokeStyle = lineColor;
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              points.forEach((p, i) => {
+                const x = xFor(p.x);
+                const y = yFor(p.y);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+              });
+              ctx.stroke();
+            }
 
             // points
-            ctx.fillStyle = "#7fdcff";
+            ctx.fillStyle = pointColor;
             for (const p of points) {
               const x = xFor(p.x);
               const y = yFor(p.y);
               ctx.beginPath();
-              ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+              ctx.arc(x, y, pointRadius, 0, Math.PI * 2);
               ctx.fill();
             }
 
@@ -725,14 +732,14 @@ export default {
             ctx.font = "11px Arial, sans-serif";
             ctx.fillText(xLabel, padL, h - 10);
             if (xMode === "time") {
-              for (let xVal = minX; xVal <= maxX + 0.0001; xVal += 2) {
+              for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xLabelStep) {
                 const x = xFor(xVal);
                 const hh = Math.round(xVal) % 24;
                 const label = pad2(hh) + ":00";
                 ctx.fillText(label, x - 14, h - 22);
               }
             } else {
-              for (let xVal = minX; xVal <= maxX; xVal += 1) {
+              for (let xVal = minX; xVal <= maxX; xVal += xLabelStep) {
                 const x = xFor(xVal);
                 ctx.fillText(String(xVal), x - 4, h - 22);
               }
@@ -777,7 +784,12 @@ export default {
             drawLineChart(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx, dayTimeChartScroll, dayTimeChartPoints, label, {
               xMode: "time",
               minX: 0,
-              maxX: DAY_TIME_MAX_HOUR
+              maxX: DAY_TIME_MAX_HOUR,
+              xGridStep: 1,
+              xLabelStep: 1,
+              showLine: false,
+              pointColor: "#ff4d4f",
+              pointRadius: 3.5
             });
           }
 
