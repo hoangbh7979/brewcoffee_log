@@ -54,14 +54,14 @@ export default {
             <button class="btn" id="analysisBtn">See Detailed Analysis</button>
           </div>`;
       const analysisViewHtml = isLocal ? "" : `<div id="analysisView" class="panel hidden">
-            <div class="analysis-title">Detailed Analysis</div>
+            <div class="analysis-title">Based on Brews</div>
             <div class="chart-wrap">
               <canvas id="chartAxis"></canvas>
               <div class="chart-scroll" id="chartScroll">
                 <canvas id="chart"></canvas>
               </div>
             </div>
-            <div class="analysis-subtitle">Daily Analysis (latest day)</div>
+            <div class="analysis-subtitle">Latest Date</div>
             <div class="chart-wrap">
               <canvas id="dayChartAxis"></canvas>
               <div class="chart-scroll" id="dayChartScroll">
@@ -646,6 +646,9 @@ export default {
                     
                               let wsFastPoll = null;
                               let wsRetryDelay = 300;
+                              let wsLastSeenMs = 0;
+                              const WS_PING_INTERVAL_MS = 10000;
+                              const WS_STALE_TIMEOUT_MS = 30000;
 
                               async function fastPollLatest() {
                                 try {
@@ -680,16 +683,23 @@ export default {
             ws.onopen = () => {
               setStatus("Live");
               wsRetryDelay = 300;
+              wsLastSeenMs = Date.now();
               if (window._shotWsPing) {
                 clearInterval(window._shotWsPing);
                 window._shotWsPing = null;
               }
               window._shotWsPing = setInterval(() => {
+                const now = Date.now();
+                if (now - wsLastSeenMs > WS_STALE_TIMEOUT_MS) {
+                  try { ws.close(); } catch (e) {}
+                  return;
+                }
                 try { ws.send("ping"); } catch (e) {}
-              }, 10000);
+              }, WS_PING_INTERVAL_MS);
             };
             ws.onmessage = (ev) => {
               try {
+                wsLastSeenMs = Date.now();
                 if (ev.data === "pong") return;
                 const data = JSON.parse(ev.data);
                 if (data) prependRow(data);
@@ -724,7 +734,10 @@ export default {
       </body>
       </html>`;
       return new Response(html, {
-        headers: { "Content-Type": "text/html; charset=utf-8" }
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        }
       });
     }
 
@@ -846,6 +859,7 @@ function json(obj, origin, allowedOrigin, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
       ...corsHeaders(origin, allowedOrigin),
     },
   });
