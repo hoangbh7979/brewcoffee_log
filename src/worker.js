@@ -129,6 +129,7 @@ export default {
         <script>
           const MAX_ROWS = 500;
           const MAX_POINTS = 500;
+          const TARGET_TIME_SEC = 25;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
@@ -526,9 +527,11 @@ export default {
             const yValsRaw = points.map(p => Number(p.y)).filter(v => Number.isFinite(v));
             const rawMin = yValsRaw.length > 0 ? Math.min(...yValsRaw) : 0;
             const rawMax = yValsRaw.length > 0 ? Math.max(...yValsRaw) : maxY;
+            const rawMinWithTarget = Math.min(rawMin, TARGET_TIME_SEC);
+            const rawMaxWithTarget = Math.max(rawMax, TARGET_TIME_SEC);
             const yStep = 2;
-            let yMin = Math.floor(rawMin / yStep) * yStep;
-            let yMax = Math.ceil(rawMax / yStep) * yStep;
+            let yMin = Math.floor(rawMinWithTarget / yStep) * yStep;
+            let yMax = Math.ceil(rawMaxWithTarget / yStep) * yStep;
             if (yMin === yMax) yMax = yMin + yStep;
             const yVals = [];
             for (let y = yMin; y <= yMax + 0.0001; y += yStep) {
@@ -578,6 +581,18 @@ export default {
               ctx.lineTo(x, padT + plotH);
               ctx.stroke();
             }
+
+            // fixed target line (25s)
+            const targetY = yFor(TARGET_TIME_SEC);
+            ctx.strokeStyle = "#f1d44a";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(axisX, targetY);
+            ctx.lineTo(axisX + plotW, targetY);
+            ctx.stroke();
+            ctx.fillStyle = "#f1d44a";
+            ctx.font = "12px Arial, sans-serif";
+            ctx.fillText("Target Time", axisX + 8, targetY - 6);
 
             // line
             ctx.strokeStyle = "#7fdcff";
@@ -994,4 +1009,3 @@ function formatTime(d) {
   const yy = ("" + d.getFullYear()).slice(-2);
   return `${hh}h${mm} ${dd}/${mo}/${yy}`;
 }
-
