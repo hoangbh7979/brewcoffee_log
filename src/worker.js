@@ -500,7 +500,7 @@ export default {
             resizeOne(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx);
           }
 
-          function drawLineChart(canvas, ctx, axisCanvas, axisCtx, points, xLabel) {
+          function drawLineChart(canvas, ctx, axisCanvas, axisCtx, scrollEl, points, xLabel) {
             if (!canvas || !ctx) return;
             const w = canvas.clientWidth || 0;
             const h = canvas.clientHeight || 0;
@@ -599,8 +599,12 @@ export default {
             const sampleW = 20;
             const legendW = sampleW + 8 + legendTextW + legendPad * 2;
             const legendH = 20;
-            const legendX = axisX + plotW - legendW - 6;
-            const legendY = padT + 6;
+            const viewRight = scrollEl ? (scrollEl.scrollLeft + scrollEl.clientWidth) : (axisX + plotW);
+            const rightClamp = axisX + plotW - 6;
+            const leftClamp = axisX + legendW + 6;
+            const legendRight = Math.min(rightClamp, Math.max(leftClamp, viewRight - 8));
+            const legendX = legendRight - legendW;
+            const legendY = Math.max(2, padT - legendH - 4);
             ctx.fillStyle = "rgba(10, 14, 18, 0.78)";
             ctx.fillRect(legendX, legendY, legendW, legendH);
             ctx.strokeStyle = "#23313c";
@@ -618,6 +622,7 @@ export default {
             ctx.fillStyle = "#f1d44a";
             ctx.textBaseline = "middle";
             ctx.fillText(legendText, sampleX2 + 8, sampleY);
+            ctx.textBaseline = "alphabetic";
 
             // line
             ctx.strokeStyle = "#7fdcff";
@@ -674,13 +679,13 @@ export default {
 
           function drawChart() {
             if (!ENABLE_ANALYSIS) return;
-            drawLineChart(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx, chartPoints, "Brew count");
+            drawLineChart(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx, chartScroll, chartPoints, "Brew count");
           }
 
           function drawDayChart() {
             if (!ENABLE_ANALYSIS) return;
             const label = dayChartLabel ? ("Shot index (" + dayChartLabel + ")") : "Shot index (day)";
-            drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, getDayDisplayPoints(), label);
+            drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, dayChartScroll, getDayDisplayPoints(), label);
           }
 
                     
@@ -765,6 +770,18 @@ export default {
 
           loadShots();
           connectWs();
+          if (chartScroll) {
+            chartScroll.addEventListener('scroll', () => {
+              if (!ENABLE_ANALYSIS) return;
+              scheduleChart();
+            }, { passive: true });
+          }
+          if (dayChartScroll) {
+            dayChartScroll.addEventListener('scroll', () => {
+              if (!ENABLE_ANALYSIS) return;
+              scheduleChart();
+            }, { passive: true });
+          }
           window.addEventListener('resize', () => {
             if (!ENABLE_ANALYSIS) return;
             updateChartSize();
