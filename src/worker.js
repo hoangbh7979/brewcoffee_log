@@ -138,6 +138,7 @@ export default {
           const MAX_POINTS = 500;
           const TARGET_TIME_SEC = 25;
           const DAY_TIME_MAX_HOUR = 23 + (59 / 60);
+          const CHART_RESYNC_DEBOUNCE_MS = 1500;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
@@ -169,6 +170,8 @@ export default {
           let dayTimeChartIds = new Set();
           let dayChartLabel = "";
           let chartScheduled = false;
+          let chartResyncTimer = null;
+          let chartResyncInFlight = false;
           let chartMaxIndex = 0;
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayChartCanvas && !!dayTimeChartCanvas;
 
@@ -450,6 +453,28 @@ export default {
             trimRows(tbody);
             extractStats(r);
             addChartPoint(r);
+            scheduleChartResync();
+          }
+
+          function scheduleChartResync() {
+            if (!ENABLE_ANALYSIS) return;
+            if (!analysisView || analysisView.classList.contains('hidden')) return;
+            if (chartResyncTimer) return;
+            chartResyncTimer = setTimeout(async () => {
+              chartResyncTimer = null;
+              if (chartResyncInFlight) return;
+              chartResyncInFlight = true;
+              try {
+                const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
+                const json = await res.json();
+                const data = Array.isArray(json && json.data) ? json.data : [];
+                setChartFromData(data);
+              } catch (e) {
+                // ignore resync errors
+              } finally {
+                chartResyncInFlight = false;
+              }
+            }, CHART_RESYNC_DEBOUNCE_MS);
           }
 
           async function loadShots() {
@@ -835,6 +860,7 @@ export default {
               setStatus("Live");
               wsRetryDelay = 300;
               wsLastSeenMs = Date.now();
+              scheduleChartResync();
               if (window._shotWsPing) {
                 clearInterval(window._shotWsPing);
                 window._shotWsPing = null;
@@ -935,11 +961,7 @@ export default {
       if (!Number.isFinite(shotMs)) {
         return json({ ok: false, error: "invalid_shot_ms" }, origin, allowedOrigin, 400);
       }
-      if (ctx) {
-        ctx.waitUntil(ingestPayload(payload, env, ctx));
-      } else {
-        await ingestPayload(payload, env, ctx);
-      }
+      await ingestPayload(payload, env);
       return new Response(null, {
         status: 204,
         headers: {
@@ -1034,15 +1056,11 @@ function json(obj, origin, allowedOrigin, status = 200) {
   });
 }
 
-async function ingestPayload(payload, env, ctx) {
+async function ingestPayload(payload, env) {
   const prep = preparePayload(payload);
   if (!prep.ok) return prep;
   if (!env.DB) {
     return { ok: false, error: "DB not bound", status: 500 };
-  }
-  if (ctx) {
-    ctx.waitUntil(processIngest(prep, env));
-    return { ok: true, created_at: prep.createdAtMs };
   }
   await processIngest(prep, env);
   return { ok: true, created_at: prep.createdAtMs };
@@ -1088,7 +1106,12 @@ function buildHubMessage(prep, shotIndex) {
 async function processIngest(prep, env) {
   const shotIndex = await insertShot(prep, env);
   if (env.SHOT_HUB) {
-    await broadcastShot(buildHubMessage(prep, shotIndex), env);
+    try {
+      await broadcastShot(buildHubMessage(prep, shotIndex), env);
+    } catch (e) {
+      // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
+      console.log("broadcast_failed", e && e.message ? e.message : e);
+    }
   }
 }
 
