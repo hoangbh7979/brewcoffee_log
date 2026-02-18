@@ -342,6 +342,7 @@ export default {
               dayIds.add(key);
               dayPts.push({ id: key, x: Number.isFinite(idx) ? idx : (i + 1), y: Math.floor(y / 10) / 100 });
             });
+            dayPts.sort((a, b) => a.x - b.x);
             const dayTrimmed = dayPts.length > MAX_POINTS ? dayPts.slice(dayPts.length - MAX_POINTS) : dayPts;
             dayChartPoints = dayTrimmed;
             dayChartIds = new Set(dayTrimmed.map(p => p.id));
