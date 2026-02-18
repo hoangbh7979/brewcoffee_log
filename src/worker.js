@@ -1,7 +1,6 @@
 const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 const HUB_NAME = "global";
 const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
-const DAY_TZ_OFFSET = "+7 hours";
 
 export default {
   async fetch(request, env, ctx) {
@@ -34,7 +33,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
@@ -62,13 +61,6 @@ export default {
               </div>
             </div>
             <div class="analysis-subtitle">Latest Date</div>
-            <div class="chart-wrap">
-              <canvas id="dayChartAxis"></canvas>
-              <div class="chart-scroll" id="dayChartScroll">
-                <canvas id="dayChart"></canvas>
-              </div>
-            </div>
-            <div class="analysis-subtitle">Latest Date (timeline)</div>
             <div class="chart-wrap">
               <canvas id="dayTimeChartAxis"></canvas>
               <div class="chart-scroll" id="dayTimeChartScroll">
@@ -137,7 +129,6 @@ export default {
           const MAX_ROWS = 500;
           const MAX_POINTS = 500;
           const TARGET_TIME_SEC = 25;
-          const DAY_TIME_MAX_HOUR = 23 + (59 / 60);
           const CHART_RESYNC_DEBOUNCE_MS = 1500;
           const seen = new Set();
           const statusEl = document.getElementById('status');
@@ -149,31 +140,23 @@ export default {
           const chartCanvas = document.getElementById('chart');
           const chartAxisCanvas = document.getElementById('chartAxis');
           const chartScroll = document.getElementById('chartScroll');
-          const dayChartCanvas = document.getElementById('dayChart');
-          const dayChartAxisCanvas = document.getElementById('dayChartAxis');
-          const dayChartScroll = document.getElementById('dayChartScroll');
           const dayTimeChartCanvas = document.getElementById('dayTimeChart');
           const dayTimeChartAxisCanvas = document.getElementById('dayTimeChartAxis');
           const dayTimeChartScroll = document.getElementById('dayTimeChartScroll');
           let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
           let chartAxisCtx = chartAxisCanvas ? chartAxisCanvas.getContext('2d') : null;
-          let dayChartCtx = dayChartCanvas ? dayChartCanvas.getContext('2d') : null;
-          let dayChartAxisCtx = dayChartAxisCanvas ? dayChartAxisCanvas.getContext('2d') : null;
           let dayTimeChartCtx = dayTimeChartCanvas ? dayTimeChartCanvas.getContext('2d') : null;
           let dayTimeChartAxisCtx = dayTimeChartAxisCanvas ? dayTimeChartAxisCanvas.getContext('2d') : null;
           let chartPoints = [];
           let chartIds = new Set();
-          let dayChartPoints = [];
-          let dayChartIds = new Set();
-          let dayChartMaxIndex = 0;
           let dayTimeChartPoints = [];
           let dayTimeChartIds = new Set();
-          let dayChartLabel = "";
+          let latestDayLabel = "";
           let chartScheduled = false;
           let chartResyncTimer = null;
           let chartResyncInFlight = false;
           let chartMaxIndex = 0;
-          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayChartCanvas && !!dayTimeChartCanvas;
+          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayTimeChartCanvas;
 
           function setStatus(text) {
             if (statusEl) statusEl.textContent = text;
@@ -194,7 +177,6 @@ export default {
             updateChartSize();
             resizeChart();
             if (chartScroll) chartScroll.scrollLeft = 0;
-            if (dayChartScroll) dayChartScroll.scrollLeft = 0;
             if (dayTimeChartScroll) dayTimeChartScroll.scrollLeft = 0;
             scheduleChart();
           }
@@ -283,27 +265,13 @@ export default {
             return pad2(tz.getUTCDate()) + "/" + pad2(tz.getUTCMonth() + 1) + "/" + String(tz.getUTCFullYear()).slice(-2);
           }
 
-          function timeOfDayHour(v) {
-            const d = new Date(v);
-            if (!Number.isFinite(d.getTime())) return null;
-            const t = d.getTime() + (7 * 60 * 60 * 1000);
-            const tz = new Date(t);
-            const hh = tz.getUTCHours();
-            const mm = tz.getUTCMinutes();
-            const ss = tz.getUTCSeconds();
-            return hh + (mm / 60) + (ss / 3600);
-          }
-
           function resetChart() {
             chartPoints = [];
             chartIds = new Set();
             chartMaxIndex = 0;
-            dayChartPoints = [];
-            dayChartIds = new Set();
-            dayChartMaxIndex = 0;
             dayTimeChartPoints = [];
             dayTimeChartIds = new Set();
-            dayChartLabel = "";
+            latestDayLabel = "";
             scheduleChart();
           }
 
@@ -331,35 +299,18 @@ export default {
             chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
 
             const latestDayKey = data.length > 0 ? dateKey(data[0].created_at) : "";
-            dayChartLabel = data.length > 0 ? dateLabel(data[0].created_at) : "";
+            latestDayLabel = data.length > 0 ? dateLabel(data[0].created_at) : "";
             const dayRowsDesc = latestDayKey ? data.filter(r => dateKey(r && r.created_at) === latestDayKey) : [];
             const dayRows = dayRowsDesc.slice().reverse();
-            const dayPts = [];
-            const dayIds = new Set();
-            dayRows.forEach((r, i) => {
-              const y = Number(r && r.shot_ms);
-              if (!Number.isFinite(y)) return;
-              const idx = Number(r && r.shot_index);
-              const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
-              if (dayIds.has(key)) return;
-              dayIds.add(key);
-              dayPts.push({ id: key, x: Number.isFinite(idx) ? idx : (i + 1), y: Math.floor(y / 10) / 100 });
-            });
-            dayPts.sort((a, b) => a.x - b.x);
-            const dayTrimmed = dayPts.length > MAX_POINTS ? dayPts.slice(dayPts.length - MAX_POINTS) : dayPts;
-            dayChartPoints = dayTrimmed;
-            dayChartIds = new Set(dayTrimmed.map(p => p.id));
-            dayChartMaxIndex = dayTrimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
             const dayTimePts = [];
             const dayTimeIds = new Set();
             dayRows.forEach(r => {
-              const y = Number(r && r.shot_ms);
-              const x = timeOfDayHour(r && r.created_at);
-              if (!Number.isFinite(y) || !Number.isFinite(x)) return;
-              const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
+              const pt = toPoint(r);
+              if (!pt) return;
+              const key = String(pt.id);
               if (dayTimeIds.has(key)) return;
               dayTimeIds.add(key);
-              dayTimePts.push({ id: key, x, y: Math.floor(y / 10) / 100 });
+              dayTimePts.push({ id: key, x: pt.x, y: pt.y });
             });
             dayTimePts.sort((a, b) => a.x - b.x);
             const dayTimeTrimmed = dayTimePts.length > MAX_POINTS ? dayTimePts.slice(dayTimePts.length - MAX_POINTS) : dayTimePts;
@@ -395,39 +346,20 @@ export default {
             const dk = dateKey(r && r.created_at);
             if (dk) {
               const dl = dateLabel(r.created_at);
-              if (!dayChartLabel || dayChartLabel !== dl) {
-                dayChartPoints = [];
-                dayChartIds = new Set();
-                dayChartMaxIndex = 0;
+              if (!latestDayLabel || latestDayLabel !== dl) {
                 dayTimeChartPoints = [];
                 dayTimeChartIds = new Set();
-                dayChartLabel = dl;
+                latestDayLabel = dl;
               }
               const dkey = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
-              if (!dayChartIds.has(dkey)) {
-                const dayIdx = Number(r && r.shot_index);
-                dayChartIds.add(dkey);
-                const x = Number.isFinite(dayIdx) ? dayIdx : (dayChartMaxIndex + 1);
-                dayChartPoints.push({ id: dkey, x, y: pt.y });
-                dayChartPoints.sort((a, b) => a.x - b.x);
-                if (x > dayChartMaxIndex) dayChartMaxIndex = x;
-                if (dayChartPoints.length > MAX_POINTS) {
-                  const excess = dayChartPoints.length - MAX_POINTS;
-                  const removed = dayChartPoints.splice(0, excess);
-                  removed.forEach(p => dayChartIds.delete(p.id));
-                }
-              }
               if (!dayTimeChartIds.has(dkey)) {
-                const dayTimeX = timeOfDayHour(r && r.created_at);
-                if (Number.isFinite(dayTimeX)) {
-                  dayTimeChartIds.add(dkey);
-                  dayTimeChartPoints.push({ id: dkey, x: dayTimeX, y: pt.y });
-                  dayTimeChartPoints.sort((a, b) => a.x - b.x);
-                  if (dayTimeChartPoints.length > MAX_POINTS) {
-                    const excess = dayTimeChartPoints.length - MAX_POINTS;
-                    const removed = dayTimeChartPoints.splice(0, excess);
-                    removed.forEach(p => dayTimeChartIds.delete(p.id));
-                  }
+                dayTimeChartIds.add(dkey);
+                dayTimeChartPoints.push({ id: dkey, x: pt.x, y: pt.y });
+                dayTimeChartPoints.sort((a, b) => a.x - b.x);
+                if (dayTimeChartPoints.length > MAX_POINTS) {
+                  const excess = dayTimeChartPoints.length - MAX_POINTS;
+                  const removed = dayTimeChartPoints.splice(0, excess);
+                  removed.forEach(p => dayTimeChartIds.delete(p.id));
                 }
               }
             }
@@ -526,7 +458,6 @@ export default {
             requestAnimationFrame(() => {
               chartScheduled = false;
               drawChart();
-              drawDayChart();
               drawDayTimeChart();
             });
           }
@@ -551,21 +482,10 @@ export default {
             }
           }
 
-          function getDayDisplayPoints() {
-            if (!Array.isArray(dayChartPoints) || dayChartPoints.length === 0) return [];
-            const minX = dayChartPoints.reduce((m, p) => (p.x < m ? p.x : m), dayChartPoints[0].x);
-            return dayChartPoints.map(p => ({ id: p.id, x: (p.x - minX + 1), y: p.y }));
-          }
-
           function updateChartSize() {
             if (!ENABLE_ANALYSIS) return;
             updateSingleChartSize(chartCanvas, chartAxisCanvas, chartScroll, chartPoints);
-            updateSingleChartSize(dayChartCanvas, dayChartAxisCanvas, dayChartScroll, getDayDisplayPoints());
-            updateSingleChartSize(dayTimeChartCanvas, dayTimeChartAxisCanvas, dayTimeChartScroll, dayTimeChartPoints, {
-              minX: 0,
-              maxX: DAY_TIME_MAX_HOUR,
-              spacing: 36
-            });
+            updateSingleChartSize(dayTimeChartCanvas, dayTimeChartAxisCanvas, dayTimeChartScroll, dayTimeChartPoints);
             resizeChart();
           }
 
@@ -591,7 +511,6 @@ export default {
               }
             }
             resizeOne(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx);
-            resizeOne(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx);
             resizeOne(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx);
           }
 
@@ -798,20 +717,10 @@ export default {
             drawLineChart(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx, chartScroll, chartPoints, "Brew count");
           }
 
-          function drawDayChart() {
-            if (!ENABLE_ANALYSIS) return;
-            const label = dayChartLabel ? ("Shot index (" + dayChartLabel + ")") : "Shot index (day)";
-            drawLineChart(dayChartCanvas, dayChartCtx, dayChartAxisCanvas, dayChartAxisCtx, dayChartScroll, getDayDisplayPoints(), label);
-          }
-
           function drawDayTimeChart() {
             if (!ENABLE_ANALYSIS) return;
-            const label = dayChartLabel ? ("Time of day (" + dayChartLabel + ")") : "Time of day (day)";
+            const label = latestDayLabel ? ("Brew count (" + latestDayLabel + ")") : "Brew count (day)";
             drawLineChart(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx, dayTimeChartScroll, dayTimeChartPoints, label, {
-              xMode: "time",
-              minX: 0,
-              maxX: DAY_TIME_MAX_HOUR,
-              xGridStep: 1,
               xLabelStep: 1,
               showLine: false,
               pointColor: "#ff4d4f",
@@ -908,12 +817,6 @@ export default {
               scheduleChart();
             }, { passive: true });
           }
-          if (dayChartScroll) {
-            dayChartScroll.addEventListener('scroll', () => {
-              if (!ENABLE_ANALYSIS) return;
-              scheduleChart();
-            }, { passive: true });
-          }
           if (dayTimeChartScroll) {
             dayTimeChartScroll.addEventListener('scroll', () => {
               if (!ENABLE_ANALYSIS) return;
@@ -978,7 +881,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
@@ -1092,22 +995,21 @@ function preparePayload(payload) {
   };
 }
 
-function buildHubMessage(prep, shotIndex) {
+function buildHubMessage(prep) {
   return JSON.stringify({
     id: prep.id,
     created_at: prep.createdAtMs,
     shot_ms: prep.shotMs,
     brew_counter: prep.brewCounter,
     avg_ms: prep.avgMs,
-    shot_index: shotIndex,
   });
 }
 
 async function processIngest(prep, env) {
-  const shotIndex = await insertShot(prep, env);
+  await insertShot(prep, env);
   if (env.SHOT_HUB) {
     try {
-      await broadcastShot(buildHubMessage(prep, shotIndex), env);
+      await broadcastShot(buildHubMessage(prep), env);
     } catch (e) {
       // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
       console.log("broadcast_failed", e && e.message ? e.message : e);
@@ -1125,30 +1027,16 @@ async function broadcastShot(hubMessage, env) {
 
 async function insertShot(prep, env) {
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, shot_index, payload)
-     VALUES (
-       ?, ?, ?, ?, ?,
-       COALESCE((
-         SELECT MAX(s.shot_index) + 1
-         FROM shots s
-         WHERE date(s.created_at / 1000, 'unixepoch', ?) = date(? / 1000, 'unixepoch', ?)
-       ), 1),
-       ?
-     )`
+    `INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, payload)
+     VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(
     prep.id,
     prep.createdAtMs,
     prep.shotMs,
     prep.brewCounter,
     prep.avgMs,
-    DAY_TZ_OFFSET,
-    prep.createdAtMs,
-    DAY_TZ_OFFSET,
     prep.payloadJson
   ).run();
-  const row = await env.DB.prepare("SELECT shot_index FROM shots WHERE id = ?").bind(prep.id).first();
-  const shotIndex = Number(row && row.shot_index);
-  return Number.isFinite(shotIndex) ? shotIndex : null;
 }
 
 function isAllowedOrigin(origin, allowedOrigin) {
