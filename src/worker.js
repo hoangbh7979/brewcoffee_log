@@ -129,6 +129,7 @@ export default {
           const MAX_ROWS = 500;
           const MAX_POINTS = 500;
           const TARGET_TIME_SEC = 25;
+          const DAY_TIME_MAX_HOUR = 23 + (59 / 60);
           const CHART_RESYNC_DEBOUNCE_MS = 1500;
           const seen = new Set();
           const statusEl = document.getElementById('status');
@@ -265,6 +266,17 @@ export default {
             return pad2(tz.getUTCDate()) + "/" + pad2(tz.getUTCMonth() + 1) + "/" + String(tz.getUTCFullYear()).slice(-2);
           }
 
+          function timeOfDayHour(v) {
+            const d = new Date(v);
+            if (!Number.isFinite(d.getTime())) return null;
+            const t = d.getTime() + (7 * 60 * 60 * 1000);
+            const tz = new Date(t);
+            const hh = tz.getUTCHours();
+            const mm = tz.getUTCMinutes();
+            const ss = tz.getUTCSeconds();
+            return hh + (mm / 60) + (ss / 3600);
+          }
+
           function resetChart() {
             chartPoints = [];
             chartIds = new Set();
@@ -305,12 +317,13 @@ export default {
             const dayTimePts = [];
             const dayTimeIds = new Set();
             dayRows.forEach(r => {
-              const pt = toPoint(r);
-              if (!pt) return;
-              const key = String(pt.id);
+              const y = Number(r && r.shot_ms);
+              const x = timeOfDayHour(r && r.created_at);
+              if (!Number.isFinite(y) || !Number.isFinite(x)) return;
+              const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
               if (dayTimeIds.has(key)) return;
               dayTimeIds.add(key);
-              dayTimePts.push({ id: key, x: pt.x, y: pt.y });
+              dayTimePts.push({ id: key, x, y: Math.floor(y / 10) / 100 });
             });
             dayTimePts.sort((a, b) => a.x - b.x);
             const dayTimeTrimmed = dayTimePts.length > MAX_POINTS ? dayTimePts.slice(dayTimePts.length - MAX_POINTS) : dayTimePts;
@@ -353,13 +366,16 @@ export default {
               }
               const dkey = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
               if (!dayTimeChartIds.has(dkey)) {
-                dayTimeChartIds.add(dkey);
-                dayTimeChartPoints.push({ id: dkey, x: pt.x, y: pt.y });
-                dayTimeChartPoints.sort((a, b) => a.x - b.x);
-                if (dayTimeChartPoints.length > MAX_POINTS) {
-                  const excess = dayTimeChartPoints.length - MAX_POINTS;
-                  const removed = dayTimeChartPoints.splice(0, excess);
-                  removed.forEach(p => dayTimeChartIds.delete(p.id));
+                const dayTimeX = timeOfDayHour(r && r.created_at);
+                if (Number.isFinite(dayTimeX)) {
+                  dayTimeChartIds.add(dkey);
+                  dayTimeChartPoints.push({ id: dkey, x: dayTimeX, y: pt.y });
+                  dayTimeChartPoints.sort((a, b) => a.x - b.x);
+                  if (dayTimeChartPoints.length > MAX_POINTS) {
+                    const excess = dayTimeChartPoints.length - MAX_POINTS;
+                    const removed = dayTimeChartPoints.splice(0, excess);
+                    removed.forEach(p => dayTimeChartIds.delete(p.id));
+                  }
                 }
               }
             }
@@ -485,7 +501,11 @@ export default {
           function updateChartSize() {
             if (!ENABLE_ANALYSIS) return;
             updateSingleChartSize(chartCanvas, chartAxisCanvas, chartScroll, chartPoints);
-            updateSingleChartSize(dayTimeChartCanvas, dayTimeChartAxisCanvas, dayTimeChartScroll, dayTimeChartPoints);
+            updateSingleChartSize(dayTimeChartCanvas, dayTimeChartAxisCanvas, dayTimeChartScroll, dayTimeChartPoints, {
+              minX: 0,
+              maxX: DAY_TIME_MAX_HOUR,
+              spacing: 70
+            });
             resizeChart();
           }
 
@@ -679,9 +699,11 @@ export default {
             if (xMode === "time") {
               for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xLabelStep) {
                 const x = xFor(xVal);
-                const hh = Math.round(xVal) % 24;
-                const label = pad2(hh) + ":00";
-                ctx.fillText(label, x - 14, h - 22);
+                const totalMin = Math.round(xVal * 60);
+                const hh = Math.floor(totalMin / 60) % 24;
+                const mm = totalMin % 60;
+                const label = pad2(hh) + ":" + pad2(mm);
+                ctx.fillText(label, x - 16, h - 22);
               }
             } else {
               for (let xVal = minX; xVal <= maxX; xVal += xLabelStep) {
@@ -719,9 +741,13 @@ export default {
 
           function drawDayTimeChart() {
             if (!ENABLE_ANALYSIS) return;
-            const label = latestDayLabel ? ("Brew count (" + latestDayLabel + ")") : "Brew count (day)";
+            const label = latestDayLabel ? ("Time of day (" + latestDayLabel + ")") : "Time of day (day)";
             drawLineChart(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx, dayTimeChartScroll, dayTimeChartPoints, label, {
-              xLabelStep: 1,
+              xMode: "time",
+              minX: 0,
+              maxX: DAY_TIME_MAX_HOUR,
+              xGridStep: 0.5,
+              xLabelStep: 0.5,
               showLine: false,
               pointColor: "#ff4d4f",
               pointRadius: 3.5
