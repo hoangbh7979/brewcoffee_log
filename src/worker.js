@@ -162,12 +162,14 @@ export default {
           let chartResyncInFlight = false;
           let chartMaxIndex = 0;
           const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayTimeChartCanvas;
+          const UI_REFRESH_INTERVAL_MS = 10000;
 
           function setStatus(text) {
             if (statusEl) statusEl.textContent = text;
           }
 
-          function showMain() {
+          async function showMain() {
+            await syncShots();
             if (mainView) mainView.classList.remove('hidden');
             if (analysisView) analysisView.classList.add('hidden');
             if (analysisBtn) analysisBtn.textContent = "See Detailed Analysis";
@@ -175,7 +177,7 @@ export default {
 
           async function showAnalysis() {
             if (!ENABLE_ANALYSIS) return;
-            await loadShots();
+            await syncShots();
             if (mainView) mainView.classList.add('hidden');
             if (analysisView) analysisView.classList.remove('hidden');
             if (analysisBtn) analysisBtn.textContent = "Back to main";
@@ -189,7 +191,7 @@ export default {
           async function toggleAnalysis() {
             if (!ENABLE_ANALYSIS) return;
             if (analysisView && !analysisView.classList.contains('hidden')) {
-              showMain();
+              await showMain();
             } else {
               await showAnalysis();
             }
@@ -762,6 +764,8 @@ export default {
                               let wsFastPoll = null;
                               let wsRetryDelay = 300;
                               let wsLastSeenMs = 0;
+                              let wsReconnectTimer = null;
+                              let loadShotsInFlight = null;
                               const WS_PING_INTERVAL_MS = 10000;
                               const WS_STALE_TIMEOUT_MS = 30000;
 
@@ -789,7 +793,53 @@ export default {
                                 wsFastPoll = null;
                               }
 
+                              async function syncShots() {
+                                if (loadShotsInFlight) return loadShotsInFlight;
+                                loadShotsInFlight = loadShots()
+                                  .catch(() => {})
+                                  .finally(() => {
+                                    loadShotsInFlight = null;
+                                  });
+                                return loadShotsInFlight;
+                              }
+
+                              function scheduleWsReconnect(delay) {
+                                if (wsReconnectTimer) return;
+                                wsReconnectTimer = setTimeout(() => {
+                                  wsReconnectTimer = null;
+                                  connectWs();
+                                }, delay);
+                              }
+
+                              function ensureWsFresh() {
+                                const ws = window._shotWs;
+                                const now = Date.now();
+                                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                                  if (ws && ws.readyState !== WebSocket.CONNECTING) {
+                                    try { ws.close(); } catch (e) {}
+                                  }
+                                  connectWs();
+                                  return;
+                                }
+                                if (now - wsLastSeenMs > WS_STALE_TIMEOUT_MS) {
+                                  try { ws.close(); } catch (e) {}
+                                  return;
+                                }
+                                try { ws.send("ping"); } catch (e) {
+                                  try { ws.close(); } catch (closeErr) {}
+                                }
+                              }
+
+                              function refreshLiveViews() {
+                                syncShots();
+                                ensureWsFresh();
+                              }
+
           function connectWs() {
+            const current = window._shotWs;
+            if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) {
+              return;
+            }
             setStatus("Connecting...");
             const proto = location.protocol === "https:" ? "wss" : "ws";
             const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
@@ -800,6 +850,7 @@ export default {
               wsRetryDelay = 300;
               wsLastSeenMs = Date.now();
               scheduleChartResync();
+              syncShots();
               if (window._shotWsPing) {
                 clearInterval(window._shotWsPing);
                 window._shotWsPing = null;
@@ -825,13 +876,16 @@ export default {
             };
             ws.onclose = () => {
               setStatus("Reconnecting...");
+              if (window._shotWs === ws) {
+                window._shotWs = null;
+              }
               if (window._shotWsPing) {
                 clearInterval(window._shotWsPing);
                 window._shotWsPing = null;
               }
               startFastPoll();
               const delay = wsRetryDelay || 300;
-              setTimeout(connectWs, delay);
+              scheduleWsReconnect(delay);
               wsRetryDelay = Math.min((wsRetryDelay || 300) * 2, 2000);
             };
             ws.onerror = () => {
@@ -839,8 +893,25 @@ export default {
             };
           }
 
-          loadShots();
+          syncShots();
           connectWs();
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') return;
+            refreshLiveViews();
+          });
+          window.addEventListener('focus', () => {
+            refreshLiveViews();
+          });
+          window.addEventListener('pageshow', () => {
+            refreshLiveViews();
+          });
+          window.addEventListener('online', () => {
+            refreshLiveViews();
+          });
+          setInterval(() => {
+            if (document.visibilityState === 'hidden') return;
+            refreshLiveViews();
+          }, UI_REFRESH_INTERVAL_MS);
           if (chartScroll) {
             chartScroll.addEventListener('scroll', () => {
               if (!ENABLE_ANALYSIS) return;
