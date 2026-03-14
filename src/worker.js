@@ -906,36 +906,10 @@ export default {
       if (!result.ok) {
         return json({ ok: false, error: result.error || "ingest_failed" }, origin, ALLOWED_ORIGIN, result.status || 500);
       }
-      return json(
-        { ok: true, id: result.id, created_at: result.created_at },
-        origin,
-        ALLOWED_ORIGIN
-      );
-    }
-
-    if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/api/ingest-status") {
-      if (!hasValidApiKey(request, env)) {
-        return json({ ok: false, error: "unauthorized" }, origin, ALLOWED_ORIGIN, 401);
-      }
-      if (!env.DB) {
-        return json({ ok: false, error: "DB not bound" }, origin, ALLOWED_ORIGIN, 500);
-      }
-      const id = (url.searchParams.get("id") || "").trim();
-      if (!id) {
-        return json({ ok: false, error: "missing_id" }, origin, ALLOWED_ORIGIN, 400);
-      }
-
-      const row = await env.DB.prepare(
-        "SELECT 1 AS found FROM shots WHERE id = ? LIMIT 1"
-      ).bind(id).first();
-      const exists = !!row;
-      if (request.method === "HEAD") {
-        return new Response(null, {
-          status: exists ? 204 : 404,
-          headers: corsHeaders(origin, ALLOWED_ORIGIN),
-        });
-      }
-      return json({ ok: true, exists, id }, origin, ALLOWED_ORIGIN, exists ? 200 : 404);
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(origin, ALLOWED_ORIGIN),
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/api/shots") {
