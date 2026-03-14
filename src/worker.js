@@ -37,7 +37,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC, brew_counter DESC, id DESC LIMIT ?"
       ).bind(limit).all();
 
       const rows = results.map(r => {
@@ -229,12 +229,49 @@ export default {
             updateStats(brew, avg);
           }
 
+          function shotCreatedAtMs(r) {
+            const direct = Number(r && r.created_at);
+            if (Number.isFinite(direct)) return direct;
+            const dt = new Date(r && r.created_at);
+            const ms = dt.getTime();
+            return Number.isFinite(ms) ? ms : 0;
+          }
+
+          function compareShotsDesc(a, b) {
+            const aBrew = Number(a && a.brew_counter);
+            const bBrew = Number(b && b.brew_counter);
+            const aHasBrew = Number.isFinite(aBrew);
+            const bHasBrew = Number.isFinite(bBrew);
+            const aCreated = shotCreatedAtMs(a);
+            const bCreated = shotCreatedAtMs(b);
+            if (aCreated !== bCreated) {
+              return bCreated - aCreated;
+            }
+            if (aHasBrew && bHasBrew && aBrew !== bBrew) {
+              return bBrew - aBrew;
+            }
+            if (aHasBrew !== bHasBrew) {
+              return aHasBrew ? -1 : 1;
+            }
+            const aId = String((a && a.id) || "");
+            const bId = String((b && b.id) || "");
+            if (aId === bId) return 0;
+            return aId < bId ? 1 : -1;
+          }
+
+          function sortShotsData(rows) {
+            return (Array.isArray(rows) ? rows.slice() : []).sort(compareShotsDesc);
+          }
+
           function renderRow(r) {
             const dt = new Date(r.created_at);
             const timeText = formatTime(dt);
             const shotText = formatShot(r.shot_ms);
             const idx = Number.isFinite(r.brew_counter) ? '#' + r.brew_counter : '';
-            return \`<tr><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
+            const key = rowKey(r);
+            const brew = Number.isFinite(Number(r && r.brew_counter)) ? Number(r.brew_counter) : "";
+            const createdAt = shotCreatedAtMs(r);
+            return \`<tr data-id="\${key}" data-brew-counter="\${brew}" data-created-at="\${createdAt}"><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
           }
 
           function trimRows(tbody) {
@@ -396,16 +433,43 @@ export default {
             return String(r && r.id ? r.id : "");
           }
 
+          function rowDataFromElement(tr) {
+            if (!tr) return null;
+            return {
+              id: tr.dataset.id || "",
+              brew_counter: tr.dataset.brewCounter === "" ? null : Number(tr.dataset.brewCounter),
+              created_at: tr.dataset.createdAt === "" ? 0 : Number(tr.dataset.createdAt),
+            };
+          }
+
+          function sortTbodyRows(tbody) {
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => compareShotsDesc(rowDataFromElement(a), rowDataFromElement(b)));
+            rows.forEach(row => tbody.appendChild(row));
+          }
+
           function prependRow(r) {
             const tbody = document.getElementById('shots');
             if (!tbody) return;
             const key = rowKey(r);
             if (!key) return;
             if (seen.has(key)) return;
+            if (tbody.children.length === 1) {
+              const onlyRow = tbody.firstElementChild;
+              const onlyCell = onlyRow && onlyRow.children && onlyRow.children.length === 1 ? onlyRow.children[0] : null;
+              if (onlyCell && onlyCell.getAttribute('colspan') === '3') {
+                tbody.innerHTML = '';
+              }
+            }
             seen.add(key);
             tbody.insertAdjacentHTML('afterbegin', renderRow(r));
+            sortTbodyRows(tbody);
             trimRows(tbody);
-            extractStats(r);
+            const firstRow = tbody.firstElementChild;
+            if (firstRow && firstRow.dataset && firstRow.dataset.id === key) {
+              extractStats(r);
+            }
             addChartPoint(r);
             scheduleChartResync();
           }
@@ -421,7 +485,7 @@ export default {
               try {
                 const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
                 const json = await res.json();
-                const data = Array.isArray(json && json.data) ? json.data : [];
+                const data = sortShotsData(Array.isArray(json && json.data) ? json.data : []);
                 setChartFromData(data);
               } catch (e) {
                 // ignore resync errors
@@ -436,8 +500,9 @@ export default {
               const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
               const json = await res.json();
               const tbody = document.getElementById('shots');
-              const data = json.data || [];
+              const data = sortShotsData(json.data || []);
               if (data.length === 0) {
+                seen.clear();
                 tbody.innerHTML = '<tr><td colspan="3">No data</td></tr>';
                 updateStats(null, null);
                 setChartFromData([]);
@@ -773,7 +838,7 @@ export default {
                                 try {
                                   const res = await fetch('/api/shots?limit=5', { cache: 'no-store' });
                                   const json = await res.json();
-                                  const data = json.data || [];
+                                  const data = sortShotsData(json.data || []);
                                   for (let i = data.length - 1; i >= 0; i--) {
                                     prependRow(data[i]);
                                   }
@@ -982,7 +1047,7 @@ export default {
       }
       const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
       const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC, brew_counter DESC, id DESC LIMIT ?"
       ).bind(limit).all();
 
       return json({ ok: true, data: results }, origin, allowedOrigin);
