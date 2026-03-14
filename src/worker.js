@@ -2,6 +2,8 @@ const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 const HUB_NAME = "global";
 const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
 const SHOTS_LIMIT = 500;
+const LOG_INGEST = true;
+const SLOW_INGEST_MS = 500;
 
 export default {
   async fetch(request, env, ctx) {
@@ -1007,22 +1009,43 @@ async function listShots(env, limit) {
 }
 
 async function ingestPayload(payload, env, ctx) {
+  const startedAt = Date.now();
   const prep = preparePayload(payload);
   if (!prep.ok) return prep;
   if (!env.DB) {
     return { ok: false, error: "DB not bound", status: 500 };
   }
+  const insertStartedAt = Date.now();
   await insertShot(prep, env);
+  const insertMs = Date.now() - insertStartedAt;
+  let broadcastMs = 0;
   if (env.SHOT_HUB) {
-    const task = broadcastShot(buildHubMessage(prep), env).catch((e) => {
-      // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
-      console.log("broadcast_failed", e && e.message ? e.message : e);
-    });
+    const task = (async () => {
+      const broadcastStartedAt = Date.now();
+      try {
+        await broadcastShot(buildHubMessage(prep), env);
+      } catch (e) {
+        // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
+        console.log("broadcast_failed", e && e.message ? e.message : e);
+      } finally {
+        broadcastMs = Date.now() - broadcastStartedAt;
+      }
+    })();
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(task);
     } else {
       await task;
     }
+  }
+  const totalMs = Date.now() - startedAt;
+  if (LOG_INGEST && totalMs >= SLOW_INGEST_MS) {
+    console.log(
+      `[INGEST] slow brew=${Number.isFinite(prep.brewCounter) ? prep.brewCounter : -1} shot_ms=${prep.shotMs} insert_ms=${insertMs} broadcast_ms=${broadcastMs} total_ms=${totalMs}`
+    );
+  } else if (LOG_INGEST) {
+    console.log(
+      `[INGEST] ok brew=${Number.isFinite(prep.brewCounter) ? prep.brewCounter : -1} shot_ms=${prep.shotMs} insert_ms=${insertMs} broadcast_ms=${broadcastMs} total_ms=${totalMs}`
+    );
   }
   return { ok: true, created_at: prep.createdAtMs, id: prep.id };
 }
