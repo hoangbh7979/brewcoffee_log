@@ -874,7 +874,13 @@ export default {
       });
     }
 
-    if (request.method === "GET" && url.pathname === "/api/health") {
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/api/health") {
+      if (request.method === "HEAD") {
+        return new Response(null, {
+          status: 204,
+          headers: corsHeaders(origin, ALLOWED_ORIGIN),
+        });
+      }
       return json({ ok: true, ts: Date.now() }, origin, ALLOWED_ORIGIN);
     }
 
