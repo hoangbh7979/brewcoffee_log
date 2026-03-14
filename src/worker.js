@@ -1,18 +1,18 @@
 const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 const HUB_NAME = "global";
 const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
+const SHOTS_LIMIT = 500;
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
-    const allowedOrigin = ALLOWED_ORIGIN;
 
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: corsHeaders(origin, allowedOrigin),
+        headers: corsHeaders(origin, ALLOWED_ORIGIN),
       });
     }
 
@@ -20,25 +20,19 @@ export default {
       if (!env.SHOT_HUB) {
         return new Response("Hub not bound", { status: 500 });
       }
-      if (!isAllowedOrigin(origin, allowedOrigin)) {
+      if (!isAllowedOrigin(origin, ALLOWED_ORIGIN)) {
         return new Response("Forbidden", { status: 403 });
       }
       const id = env.SHOT_HUB.idFromName(HUB_NAME);
       return env.SHOT_HUB.get(id).fetch(request);
     }
 
-    if (request.method === "GET" && url.pathname === "/api/ws-ingest") {
-      return handleWsIngest(request, env);
-    }
-
     if (request.method === "GET" && url.pathname === "/") {
       if (!env.DB) {
         return new Response("DB not found", { status: 500 });
       }
-      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
-      const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
-      ).bind(limit).all();
+      const limit = clampInt(url.searchParams.get("limit"), 1, SHOTS_LIMIT, SHOTS_LIMIT);
+      const results = await listShots(env, limit);
 
       const rows = results.map(r => {
         const dt = new Date(r.created_at);
@@ -102,7 +96,6 @@ export default {
           .chart-scroll::-webkit-scrollbar-track { background:#10161c; border-radius:999px; }
           .chart-scroll::-webkit-scrollbar-thumb { background:#2e4a5a; border-radius:999px; }
           #chart { width:100%; height:320px; display:block; }
-          .chart-legend { color:#7a8a99; font-size:12px; margin-top:8px; }
           .analysis-title { color:#cfefff; font-weight:600; margin:2px 0 10px; }
           .analysis-subtitle { color:#9fbfd4; font-weight:600; margin:14px 0 8px; }
         </style>
@@ -135,6 +128,10 @@ export default {
           const TARGET_TIME_SEC = 25;
           const DAY_TIME_MAX_HOUR = 23 + (59 / 60);
           const CHART_RESYNC_DEBOUNCE_MS = 1500;
+          const LATEST_POLL_MS = 1000;
+          const FULL_REFRESH_MS = 30000;
+          const WS_PING_INTERVAL_MS = 10000;
+          const WS_STALE_TIMEOUT_MS = 30000;
           const seen = new Set();
           const statusEl = document.getElementById('status');
           const brewEl = document.getElementById('brewCounter');
@@ -417,9 +414,7 @@ export default {
               if (chartResyncInFlight) return;
               chartResyncInFlight = true;
               try {
-                const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
-                const json = await res.json();
-                const data = Array.isArray(json && json.data) ? json.data : [];
+                const data = await fetchShots(MAX_ROWS);
                 setChartFromData(data);
               } catch (e) {
                 // ignore resync errors
@@ -429,12 +424,16 @@ export default {
             }, CHART_RESYNC_DEBOUNCE_MS);
           }
 
+          async function fetchShots(limit) {
+            const res = await fetch('/api/shots?limit=' + limit, { cache: 'no-store' });
+            const json = await res.json();
+            return Array.isArray(json && json.data) ? json.data : [];
+          }
+
           async function loadShots() {
             try {
-              const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
-              const json = await res.json();
               const tbody = document.getElementById('shots');
-              const data = json.data || [];
+              const data = await fetchShots(MAX_ROWS);
               if (data.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3">No data</td></tr>';
                 updateStats(null, null);
@@ -454,6 +453,11 @@ export default {
             } catch (e) {
               // ignore fetch errors (offline etc.)
             }
+          }
+
+          async function refreshAllViews() {
+            if (document.visibilityState === 'hidden') return;
+            await loadShots();
           }
 
           function formatShot(ms) {
@@ -758,53 +762,52 @@ export default {
             });
           }
 
-                    
-                              let wsFastPoll = null;
-                              let wsRetryDelay = 300;
-                              let wsLastSeenMs = 0;
-                              const WS_PING_INTERVAL_MS = 10000;
-                              const WS_STALE_TIMEOUT_MS = 30000;
+          let wsFastPoll = null;
+          let wsPingTimer = null;
+          let wsRetryDelay = 300;
+          let wsLastSeenMs = 0;
 
-                              async function fastPollLatest() {
-                                try {
-                                  const res = await fetch('/api/shots?limit=5', { cache: 'no-store' });
-                                  const json = await res.json();
-                                  const data = json.data || [];
-                                  for (let i = data.length - 1; i >= 0; i--) {
-                                    prependRow(data[i]);
-                                  }
-                                } catch (e) {
-                                  // ignore
-                                }
-                              }
+          async function fastPollLatest() {
+            try {
+              const data = await fetchShots(5);
+              for (let i = data.length - 1; i >= 0; i--) {
+                prependRow(data[i]);
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
 
-                              function startFastPoll() {
-                                if (wsFastPoll) return;
-                                wsFastPoll = setInterval(fastPollLatest, 1000);
-                              }
+          function startFastPoll() {
+            if (wsFastPoll) return;
+            wsFastPoll = setInterval(fastPollLatest, LATEST_POLL_MS);
+          }
 
-                              function stopFastPoll() {
-                                if (!wsFastPoll) return;
-                                clearInterval(wsFastPoll);
-                                wsFastPoll = null;
-                              }
+          function stopFastPoll() {
+            if (!wsFastPoll) return;
+            clearInterval(wsFastPoll);
+            wsFastPoll = null;
+          }
+
+          function stopWsPing() {
+            if (!wsPingTimer) return;
+            clearInterval(wsPingTimer);
+            wsPingTimer = null;
+          }
 
           function connectWs() {
             setStatus("Connecting...");
             const proto = location.protocol === "https:" ? "wss" : "ws";
             const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
-            window._shotWs = ws;
             stopFastPoll();
             ws.onopen = () => {
               setStatus("Live");
               wsRetryDelay = 300;
               wsLastSeenMs = Date.now();
+              void loadShots();
               scheduleChartResync();
-              if (window._shotWsPing) {
-                clearInterval(window._shotWsPing);
-                window._shotWsPing = null;
-              }
-              window._shotWsPing = setInterval(() => {
+              stopWsPing();
+              wsPingTimer = setInterval(() => {
                 const now = Date.now();
                 if (now - wsLastSeenMs > WS_STALE_TIMEOUT_MS) {
                   try { ws.close(); } catch (e) {}
@@ -825,10 +828,7 @@ export default {
             };
             ws.onclose = () => {
               setStatus("Reconnecting...");
-              if (window._shotWsPing) {
-                clearInterval(window._shotWsPing);
-                window._shotWsPing = null;
-              }
+              stopWsPing();
               startFastPoll();
               const delay = wsRetryDelay || 300;
               setTimeout(connectWs, delay);
@@ -841,6 +841,11 @@ export default {
 
           loadShots();
           connectWs();
+          setInterval(() => { void refreshAllViews(); }, FULL_REFRESH_MS);
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') return;
+            void loadShots();
+          });
           if (chartScroll) {
             chartScroll.addEventListener('scroll', () => {
               if (!ENABLE_ANALYSIS) return;
@@ -870,7 +875,7 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ ok: true, ts: Date.now() }, origin, allowedOrigin);
+      return json({ ok: true, ts: Date.now() }, origin, ALLOWED_ORIGIN);
     }
 
     if (request.method === "POST" && url.pathname === "/api/ingest") {
@@ -880,25 +885,28 @@ export default {
         "";
 
       if (!env.API_KEY || key !== env.API_KEY) {
-        return json({ ok: false, error: "unauthorized" }, origin, allowedOrigin, 401);
+        return json({ ok: false, error: "unauthorized" }, origin, ALLOWED_ORIGIN, 401);
       }
 
       let payload = null;
       try {
         payload = await request.json();
       } catch {
-        return json({ ok: false, error: "invalid_json" }, origin, allowedOrigin, 400);
+        return json({ ok: false, error: "invalid_json" }, origin, ALLOWED_ORIGIN, 400);
       }
 
       const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
       if (!Number.isFinite(shotMs)) {
-        return json({ ok: false, error: "invalid_shot_ms" }, origin, allowedOrigin, 400);
+        return json({ ok: false, error: "invalid_shot_ms" }, origin, ALLOWED_ORIGIN, 400);
       }
-      await ingestPayload(payload, env);
+      const result = await ingestPayload(payload, env, ctx);
+      if (!result.ok) {
+        return json({ ok: false, error: result.error || "ingest_failed" }, origin, ALLOWED_ORIGIN, result.status || 500);
+      }
       return new Response(null, {
         status: 204,
         headers: {
-          ...corsHeaders(origin, allowedOrigin),
+          ...corsHeaders(origin, ALLOWED_ORIGIN),
           "Connection": "keep-alive",
           "Keep-Alive": "timeout=30"
         },
@@ -907,14 +915,12 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/api/shots") {
       if (!env.DB) {
-        return json({ ok: false, error: "DB not bound" }, origin, allowedOrigin, 500);
+        return json({ ok: false, error: "DB not bound" }, origin, ALLOWED_ORIGIN, 500);
       }
-      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 500);
-      const { results } = await env.DB.prepare(
-        "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
-      ).bind(limit).all();
+      const limit = clampInt(url.searchParams.get("limit"), 1, SHOTS_LIMIT, SHOTS_LIMIT);
+      const results = await listShots(env, limit);
 
-      return json({ ok: true, data: results }, origin, allowedOrigin);
+      return json({ ok: true, data: results }, origin, ALLOWED_ORIGIN);
     }
 
     return new Response("Not found", { status: 404 });
@@ -922,9 +928,7 @@ export default {
 };
 
 export class ShotHub {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
+  constructor() {
     this.sockets = new Set();
   }
 
@@ -989,85 +993,31 @@ function json(obj, origin, allowedOrigin, status = 200) {
   });
 }
 
-function wsSendJson(ws, obj) {
-  try {
-    ws.send(JSON.stringify(obj));
-  } catch (e) {
-    // ignore ws send failures
-  }
+async function listShots(env, limit) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, created_at, shot_ms, brew_counter, avg_ms, payload FROM shots ORDER BY created_at DESC LIMIT ?"
+  ).bind(limit).all();
+  return results;
 }
 
-async function handleWsIngest(request, env) {
-  const upgrade = (request.headers.get("Upgrade") || "").toLowerCase();
-  if (upgrade !== "websocket") {
-    return new Response("Expected websocket", { status: 426 });
-  }
-
-  const url = new URL(request.url);
-  const key =
-    request.headers.get("x-api-key") ||
-    url.searchParams.get("key") ||
-    "";
-  if (!env.API_KEY || key !== env.API_KEY) {
-    return new Response("unauthorized", { status: 401 });
-  }
-  if (!env.DB) {
-    return new Response("DB not bound", { status: 500 });
-  }
-
-  const pair = new WebSocketPair();
-  const client = pair[0];
-  const server = pair[1];
-  server.accept();
-
-  server.addEventListener("message", (event) => {
-    void (async () => {
-      try {
-        const raw =
-          typeof event.data === "string"
-            ? event.data
-            : (event.data instanceof ArrayBuffer
-              ? new TextDecoder().decode(event.data)
-              : String(event.data || ""));
-        if (raw === "ping") {
-          try { server.send("pong"); } catch (e) {}
-          return;
-        }
-
-        let payload = null;
-        try {
-          payload = JSON.parse(raw);
-        } catch (e) {
-          wsSendJson(server, { ok: false, error: "invalid_json" });
-          return;
-        }
-
-        const result = await ingestPayload(payload, env);
-        if (result && result.ok) {
-          wsSendJson(server, { ok: true, id: result.id || null, created_at: result.created_at || null });
-        } else {
-          wsSendJson(server, { ok: false, error: result && result.error ? result.error : "ingest_failed" });
-        }
-      } catch (e) {
-        wsSendJson(server, { ok: false, error: "ingest_exception" });
-      }
-    })();
-  });
-
-  server.addEventListener("error", () => {
-    try { server.close(1011, "error"); } catch (e) {}
-  });
-
-  return new Response(null, { status: 101, webSocket: client });
-}
-
-async function ingestPayload(payload, env) {
+async function ingestPayload(payload, env, ctx) {
   const prep = preparePayload(payload);
   if (!prep.ok) return prep;
   if (!env.DB) {
     return { ok: false, error: "DB not bound", status: 500 };
   }
-  await processIngest(prep, env);
+  await insertShot(prep, env);
+  if (env.SHOT_HUB) {
+    const task = broadcastShot(buildHubMessage(prep), env).catch((e) => {
+      // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
+      console.log("broadcast_failed", e && e.message ? e.message : e);
+    });
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(task);
+    } else {
+      await task;
+    }
+  }
   return { ok: true, created_at: prep.createdAtMs, id: prep.id };
 }
 
@@ -1105,18 +1055,6 @@ function buildHubMessage(prep) {
     brew_counter: prep.brewCounter,
     avg_ms: prep.avgMs,
   });
-}
-
-async function processIngest(prep, env) {
-  await insertShot(prep, env);
-  if (env.SHOT_HUB) {
-    try {
-      await broadcastShot(buildHubMessage(prep), env);
-    } catch (e) {
-      // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
-      console.log("broadcast_failed", e && e.message ? e.message : e);
-    }
-  }
 }
 
 async function broadcastShot(hubMessage, env) {
