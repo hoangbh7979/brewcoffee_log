@@ -1,6 +1,8 @@
-import { formatShot, formatTime } from "./format.js";
+import { formatClock, formatDate, formatShot } from "./format.js";
 import { CLIENT_SCRIPT } from "./page-client.js";
 import { PAGE_STYLES } from "./page-styles.js";
+
+const TARGET_SHOT_MS = 25000;
 
 export function renderHomePage(url, results) {
   const rows = results.map(renderShotRow).join("");
@@ -86,10 +88,16 @@ ${PAGE_STYLES}
                 <div class="table-shell">
                   <table>
                     <thead>
-                      <tr><th>Brew #</th><th>Time</th><th>Shot</th></tr>
+                      <tr>
+                        <th scope="col">Brew</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Time</th>
+                        <th scope="col">Shot</th>
+                        <th scope="col">Delta</th>
+                      </tr>
                     </thead>
                     <tbody id="shots">
-                      ${rows || `<tr class="empty-row"><td colspan="3">No data</td></tr>`}
+                      ${rows || `<tr class="empty-row"><td colspan="5">No data</td></tr>`}
                     </tbody>
                   </table>
                 </div>
@@ -114,17 +122,40 @@ ${CLIENT_SCRIPT}
 
 function renderShotRow(r) {
   const dt = new Date(r.created_at);
-  const timeText = formatTime(dt);
+  const dateText = formatDate(dt);
+  const clockText = formatClock(dt);
   const shotText = formatShot(r.shot_ms);
+  const delta = buildShotDelta(r.shot_ms);
   const idx = Number.isFinite(r.brew_counter) ? `#${r.brew_counter}` : "";
   const key = String(r && r.id ? r.id : "");
   const brew = Number.isFinite(Number(r && r.brew_counter)) ? Number(r.brew_counter) : "";
   const createdAt = Number.isFinite(Number(r && r.created_at)) ? Number(r.created_at) : 0;
-  return `<tr data-id="${key}" data-brew-counter="${brew}" data-created-at="${createdAt}">
-          <td class="brew-cell">${idx}</td>
-          <td>${timeText}</td>
+  return `<tr data-id="${key}" data-brew-counter="${brew}" data-created-at="${createdAt}" data-timing="${delta.timing}">
+          <td class="brew-cell"><span class="brew-badge">${idx}</span></td>
+          <td class="date-cell">${dateText}</td>
+          <td class="time-cell">${clockText}</td>
           <td class="shot-cell">${shotText}</td>
+          <td class="delta-cell"><span class="delta-badge ${delta.className}">${delta.text}</span></td>
         </tr>`;
+}
+
+function buildShotDelta(ms) {
+  const shotMs = Number(ms);
+  if (!Number.isFinite(shotMs)) {
+    return { text: "--", className: "is-neutral", timing: "neutral" };
+  }
+  const deltaSec = (shotMs - TARGET_SHOT_MS) / 1000;
+  const abs = Math.abs(deltaSec);
+  if (abs < 0.005) {
+    return { text: "Target", className: "is-target", timing: "target" };
+  }
+  const prefix = deltaSec > 0 ? "+" : "-";
+  const timing = deltaSec > 0 ? "slow" : "fast";
+  return {
+    text: `${prefix}${abs.toFixed(2)}s`,
+    className: deltaSec > 0 ? "is-slow" : "is-fast",
+    timing,
+  };
 }
 
 function renderAnalysisButton() {

@@ -27,3 +27,16 @@ export function formatTime(d) {
   const yy = ("" + d.getFullYear()).slice(-2);
   return `${hh}h${mm} ${dd}/${mo}/${yy}`;
 }
+
+export function formatClock(d) {
+  const hh = pad2(d.getHours());
+  const mm = pad2(d.getMinutes());
+  return `${hh}:${mm}`;
+}
+
+export function formatDate(d) {
+  const dd = pad2(d.getDate());
+  const mo = pad2(d.getMonth() + 1);
+  const yy = ("" + d.getFullYear()).slice(-2);
+  return `${dd}/${mo}/${yy}`;
+}

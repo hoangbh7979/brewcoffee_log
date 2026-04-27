@@ -139,13 +139,15 @@ export const CLIENT_SCRIPT = `
 
           function renderRow(r) {
             const dt = new Date(r.created_at);
-            const timeText = formatTime(dt);
+            const dateText = formatDate(dt);
+            const clockText = formatClock(dt);
             const shotText = formatShot(r.shot_ms);
+            const delta = buildShotDelta(r.shot_ms);
             const idx = Number.isFinite(r.brew_counter) ? '#' + r.brew_counter : '';
             const key = rowKey(r);
             const brew = Number.isFinite(Number(r && r.brew_counter)) ? Number(r.brew_counter) : "";
             const createdAt = shotCreatedAtMs(r);
-            return \`<tr data-id="\${key}" data-brew-counter="\${brew}" data-created-at="\${createdAt}"><td class="brew-cell">\${idx}</td><td>\${timeText}</td><td class="shot-cell">\${shotText}</td></tr>\`;
+            return \`<tr data-id="\${key}" data-brew-counter="\${brew}" data-created-at="\${createdAt}" data-timing="\${delta.timing}"><td class="brew-cell"><span class="brew-badge">\${idx}</span></td><td class="date-cell">\${dateText}</td><td class="time-cell">\${clockText}</td><td class="shot-cell">\${shotText}</td><td class="delta-cell"><span class="delta-badge \${delta.className}">\${delta.text}</span></td></tr>\`;
           }
 
           function trimRows(tbody) {
@@ -332,7 +334,7 @@ export const CLIENT_SCRIPT = `
             if (tbody.children.length === 1) {
               const onlyRow = tbody.firstElementChild;
               const onlyCell = onlyRow && onlyRow.children && onlyRow.children.length === 1 ? onlyRow.children[0] : null;
-              if (onlyCell && onlyCell.getAttribute('colspan') === '3') {
+              if (onlyCell && onlyCell.getAttribute('colspan') === '5') {
                 tbody.innerHTML = '';
               }
             }
@@ -377,7 +379,7 @@ export const CLIENT_SCRIPT = `
               const data = sortShotsData(json.data || []);
               if (data.length === 0) {
                 seen.clear();
-                tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No data</td></tr>';
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No data</td></tr>';
                 updateStats(null, null);
                 setChartFromData([]);
                 return;
@@ -410,6 +412,29 @@ export const CLIENT_SCRIPT = `
             const mo = pad2(d.getMonth()+1);
             const yy = (""+d.getFullYear()).slice(-2);
             return \`\${hh}h\${mm} \${dd}/\${mo}/\${yy}\`;
+          }
+          function formatClock(d){
+            return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+          }
+          function formatDate(d){
+            return pad2(d.getDate()) + "/" + pad2(d.getMonth()+1) + "/" + (""+d.getFullYear()).slice(-2);
+          }
+          function buildShotDelta(ms) {
+            const shotMs = Number(ms);
+            if (!Number.isFinite(shotMs)) {
+              return { text: "--", className: "is-neutral", timing: "neutral" };
+            }
+            const deltaSec = (shotMs / 1000) - TARGET_TIME_SEC;
+            const abs = Math.abs(deltaSec);
+            if (abs < 0.005) {
+              return { text: "Target", className: "is-target", timing: "target" };
+            }
+            const prefix = deltaSec > 0 ? "+" : "-";
+            return {
+              text: prefix + abs.toFixed(2) + "s",
+              className: deltaSec > 0 ? "is-slow" : "is-fast",
+              timing: deltaSec > 0 ? "slow" : "fast"
+            };
           }
           function scheduleChart() {
             if (!ENABLE_ANALYSIS) return;

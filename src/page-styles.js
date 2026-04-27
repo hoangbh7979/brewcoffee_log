@@ -291,18 +291,27 @@ export const PAGE_STYLES = `
             background: rgba(240, 185, 11, 0.10);
             color: var(--binance-gold);
           }
-          .table-shell { width: 100%; overflow-x: auto; }
+          .table-shell {
+            width: 100%;
+            overflow-x: auto;
+            background: linear-gradient(180deg, var(--snow), var(--white) 72px);
+          }
           table {
             width: 100%;
-            min-width: 520px;
+            min-width: 760px;
             border-collapse: collapse;
+            table-layout: fixed;
             font-variant-numeric: tabular-nums;
           }
           th, td {
-            padding: 16px 24px;
+            padding: 16px 20px;
             border-bottom: 1px solid var(--border);
             text-align: left;
             white-space: nowrap;
+          }
+          th + th,
+          td + td {
+            border-left: 1px solid var(--border);
           }
           th {
             background: var(--snow);
@@ -312,17 +321,91 @@ export const PAGE_STYLES = `
             line-height: 1;
             text-transform: uppercase;
           }
+          th:nth-child(1) { width: 15%; }
+          th:nth-child(2) { width: 20%; }
+          th:nth-child(3) { width: 18%; }
+          th:nth-child(4) { width: 22%; text-align: right; }
+          th:nth-child(5) { width: 25%; text-align: right; }
           td {
             color: var(--secondary);
             font-size: 16px;
             font-weight: 600;
             line-height: 1.3;
+            background-clip: padding-box;
           }
           tbody tr:nth-child(even) { background: #FAFAFA; }
-          tbody tr:hover { background: rgba(240, 185, 11, 0.08); }
+          tbody tr {
+            border-left: 3px solid transparent;
+            transition: background 200ms ease, border-color 200ms ease;
+          }
+          tbody tr:hover {
+            background: rgba(240, 185, 11, 0.08);
+            border-left-color: var(--binance-yellow);
+          }
           tbody tr:last-child td { border-bottom: 0; }
+          .brew-cell,
+          .date-cell,
+          .time-cell,
+          .shot-cell,
+          .delta-cell { vertical-align: middle; }
           .brew-cell { color: var(--ink); font-weight: 700; }
-          .shot-cell { color: var(--ink); font-weight: 700; }
+          .brew-badge {
+            min-width: 54px;
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--white);
+            color: var(--ink);
+            font-size: 14px;
+            font-weight: 700;
+          }
+          .date-cell { color: var(--secondary); }
+          .time-cell {
+            color: var(--ink);
+            font-size: 18px;
+            font-weight: 700;
+          }
+          .shot-cell {
+            color: var(--ink);
+            font-size: 18px;
+            font-weight: 700;
+            text-align: right;
+          }
+          .delta-cell { text-align: right; }
+          .delta-badge {
+            min-width: 86px;
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 10px;
+            border-radius: 50px;
+            border: 1px solid var(--border);
+            background: var(--snow);
+            color: var(--secondary);
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1;
+          }
+          .delta-badge.is-target {
+            border-color: rgba(255, 208, 0, 0.70);
+            background: rgba(240, 185, 11, 0.12);
+            color: var(--ink);
+          }
+          .delta-badge.is-fast {
+            border-color: rgba(14, 203, 129, 0.32);
+            background: rgba(14, 203, 129, 0.08);
+            color: var(--green);
+          }
+          .delta-badge.is-slow {
+            border-color: rgba(246, 70, 93, 0.30);
+            background: rgba(246, 70, 93, 0.07);
+            color: var(--red);
+          }
           .empty-row td {
             padding: 32px 24px;
             color: var(--slate);
