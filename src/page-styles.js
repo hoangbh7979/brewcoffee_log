@@ -334,14 +334,12 @@ export const PAGE_STYLES = `
             background-clip: padding-box;
           }
           tbody tr:nth-child(even) { background: #FAFAFA; }
-          tbody tr {
-            border-left: 3px solid transparent;
-            transition: background 200ms ease, border-color 200ms ease;
-          }
+          tbody tr { transition: background 200ms ease; }
+          tbody td:first-child { border-left: 3px solid transparent; }
           tbody tr:hover {
             background: rgba(240, 185, 11, 0.08);
-            border-left-color: var(--binance-yellow);
           }
+          tbody tr:hover td:first-child { border-left-color: var(--binance-yellow); }
           tbody tr:last-child td { border-bottom: 0; }
           .brew-cell,
           .date-cell,
