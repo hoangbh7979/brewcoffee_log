@@ -7,38 +7,97 @@ export function renderHomePage(url, results) {
   const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
   const analysisButtonHtml = isLocal ? "" : renderAnalysisButton();
   const analysisViewHtml = isLocal ? "" : renderAnalysisView();
+  const analysisNavHtml = isLocal ? "" : `<a href="#analysisView">Analysis</a>`;
+  const heroActionsHtml = analysisButtonHtml ? `<div class="hero-actions">${analysisButtonHtml}</div>` : "";
 
   const html = `<!doctype html>
       <html>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Shot Log</title>
+        <title>Casadio Shot Log</title>
         <style>
 ${PAGE_STYLES}
         </style>
       </head>
       <body>
-        <div class="wrap">
-          <header>BREW RECORDED - CASADIO UNDICI</header>
-          <div class="sub" id="status">Connecting...</div>
-          <div class="stats">
-            <div id="brewCounter">Brew counter: --</div>
-            <div id="avgBrew">Avg Brew Time: --.--s</div>
+        <header class="topbar">
+          <div class="nav-inner">
+            <div class="brand">
+              <span class="brand-mark">B</span>
+              <span class="brand-word">BrewLedger</span>
+            </div>
+            <nav class="nav-links" aria-label="Dashboard navigation">
+              <a href="#mainView">Log</a>
+              <a href="#summary">Metrics</a>
+              ${analysisNavHtml}
+            </nav>
+            <div class="status-pill" aria-live="polite">
+              <span class="status-dot"></span>
+              <span id="status">Connecting...</span>
+            </div>
           </div>
-          ${analysisButtonHtml}
-          <div id="mainView" class="panel">
-            <table>
-              <thead>
-                <tr><th>Brew number</th><th>Time</th><th>Shot</th></tr>
-              </thead>
-              <tbody id="shots">
-                ${rows || `<tr><td colspan="3">No data</td></tr>`}
-              </tbody>
-            </table>
-          </div>
-          ${analysisViewHtml}
-        </div>
+        </header>
+
+        <main>
+          <section class="hero-section">
+            <div class="wrap hero-grid">
+              <div class="hero-copy">
+                <p class="eyebrow">LIVE BREW TERMINAL</p>
+                <h1>Casadio Undici Shot Log</h1>
+                <p class="hero-subtitle">Target 25.00s / Last 500 entries / Live session view</p>
+                ${heroActionsHtml}
+              </div>
+              <section class="summary-panel" id="summary" aria-label="Brew metrics">
+                <div class="summary-row">
+                  <span class="summary-label">Brew counter</span>
+                  <strong id="brewCounter">--</strong>
+                </div>
+                <div class="summary-row">
+                  <span class="summary-label">Avg brew time</span>
+                  <strong id="avgBrew">--.--s</strong>
+                </div>
+                <div class="summary-row">
+                  <span class="summary-label">Target time</span>
+                  <strong>25.00s</strong>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="ticker-strip" aria-label="Live indicators">
+            <div class="wrap ticker-inner">
+              <span><strong>MODE</strong> Realtime</span>
+              <span><strong>LIMIT</strong> 500 rows</span>
+              <span><strong>SOURCE</strong> D1 + WebSocket</span>
+            </div>
+          </section>
+
+          <section class="content-section">
+            <div class="wrap">
+              <section id="mainView" class="panel table-panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">SHOT BOOK</p>
+                    <h2>Recent brews</h2>
+                  </div>
+                  <span class="data-chip">Live feed</span>
+                </div>
+                <div class="table-shell">
+                  <table>
+                    <thead>
+                      <tr><th>Brew #</th><th>Time</th><th>Shot</th></tr>
+                    </thead>
+                    <tbody id="shots">
+                      ${rows || `<tr class="empty-row"><td colspan="3">No data</td></tr>`}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+              ${analysisViewHtml}
+            </div>
+          </section>
+        </main>
 
         <script>
 ${CLIENT_SCRIPT}
@@ -58,34 +117,42 @@ function renderShotRow(r) {
   const timeText = formatTime(dt);
   const shotText = formatShot(r.shot_ms);
   const idx = Number.isFinite(r.brew_counter) ? `#${r.brew_counter}` : "";
-  return `<tr>
-          <td>${idx}</td>
+  const key = String(r && r.id ? r.id : "");
+  const brew = Number.isFinite(Number(r && r.brew_counter)) ? Number(r.brew_counter) : "";
+  const createdAt = Number.isFinite(Number(r && r.created_at)) ? Number(r.created_at) : 0;
+  return `<tr data-id="${key}" data-brew-counter="${brew}" data-created-at="${createdAt}">
+          <td class="brew-cell">${idx}</td>
           <td>${timeText}</td>
-          <td>${shotText}</td>
+          <td class="shot-cell">${shotText}</td>
         </tr>`;
 }
 
 function renderAnalysisButton() {
-  return `<div class="actions">
-            <button class="btn" id="analysisBtn">See Detailed Analysis</button>
-          </div>`;
+  return `<button class="btn primary-pill" id="analysisBtn">Detailed Analysis</button>`;
 }
 
 function renderAnalysisView() {
-  return `<div id="analysisView" class="panel hidden">
-            <div class="analysis-title">Based on Brews</div>
-            <div class="chart-wrap">
-              <canvas id="chartAxis"></canvas>
-              <div class="chart-scroll" id="chartScroll">
-                <canvas id="chart"></canvas>
-              </div>
-            </div>
-            <div class="analysis-subtitle">Latest Date</div>
-            <div class="chart-wrap">
-              <canvas id="dayTimeChartAxis"></canvas>
-              <div class="chart-scroll" id="dayTimeChartScroll">
-                <canvas id="dayTimeChart"></canvas>
-              </div>
-            </div>
-          </div>`;
+  return `<section id="analysisView" class="panel analysis-panel hidden">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">SESSION ANALYSIS</p>
+                    <h2>Based on brews</h2>
+                  </div>
+                  <span class="data-chip dark">Target 25.00s</span>
+                </div>
+                <div class="analysis-title">Brew count trend</div>
+                <div class="chart-wrap">
+                  <canvas id="chartAxis"></canvas>
+                  <div class="chart-scroll" id="chartScroll">
+                    <canvas id="chart"></canvas>
+                  </div>
+                </div>
+                <div class="analysis-subtitle">Latest date</div>
+                <div class="chart-wrap">
+                  <canvas id="dayTimeChartAxis"></canvas>
+                  <div class="chart-scroll" id="dayTimeChartScroll">
+                    <canvas id="dayTimeChart"></canvas>
+                  </div>
+                </div>
+              </section>`;
 }

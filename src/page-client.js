@@ -34,14 +34,19 @@ export const CLIENT_SCRIPT = `
           const UI_REFRESH_INTERVAL_MS = 10000;
 
           function setStatus(text) {
-            if (statusEl) statusEl.textContent = text;
+            if (!statusEl) return;
+            statusEl.textContent = text;
+            const statusPill = statusEl.closest ? statusEl.closest('.status-pill') : null;
+            if (statusPill) {
+              statusPill.dataset.state = text === "Live" ? "live" : "syncing";
+            }
           }
 
           async function showMain() {
             await syncShots();
             if (mainView) mainView.classList.remove('hidden');
             if (analysisView) analysisView.classList.add('hidden');
-            if (analysisBtn) analysisBtn.textContent = "See Detailed Analysis";
+            if (analysisBtn) analysisBtn.textContent = "Detailed Analysis";
           }
 
           async function showAnalysis() {
@@ -49,7 +54,7 @@ export const CLIENT_SCRIPT = `
             await syncShots();
             if (mainView) mainView.classList.add('hidden');
             if (analysisView) analysisView.classList.remove('hidden');
-            if (analysisBtn) analysisBtn.textContent = "Back to main";
+            if (analysisBtn) analysisBtn.textContent = "Back to Log";
             updateChartSize();
             resizeChart();
             if (chartScroll) chartScroll.scrollLeft = 0;
@@ -71,11 +76,11 @@ export const CLIENT_SCRIPT = `
           function updateStats(brew, avg) {
             const hasBrew = Number.isFinite(brew);
             if (brewEl) {
-              brewEl.textContent = "Brew counter: " + (hasBrew ? Math.trunc(brew) : "--");
+              brewEl.textContent = hasBrew ? Math.trunc(brew) : "--";
             }
             if (avgEl) {
               const showAvg = hasBrew && brew > 0 && Number.isFinite(avg);
-              avgEl.textContent = "Avg Brew Time: " + (showAvg ? formatShot(avg) : "--.--s");
+              avgEl.textContent = showAvg ? formatShot(avg) : "--.--s";
             }
           }
 
@@ -140,7 +145,7 @@ export const CLIENT_SCRIPT = `
             const key = rowKey(r);
             const brew = Number.isFinite(Number(r && r.brew_counter)) ? Number(r.brew_counter) : "";
             const createdAt = shotCreatedAtMs(r);
-            return \`<tr data-id="\${key}" data-brew-counter="\${brew}" data-created-at="\${createdAt}"><td>\${idx}</td><td>\${timeText}</td><td>\${shotText}</td></tr>\`;
+            return \`<tr data-id="\${key}" data-brew-counter="\${brew}" data-created-at="\${createdAt}"><td class="brew-cell">\${idx}</td><td>\${timeText}</td><td class="shot-cell">\${shotText}</td></tr>\`;
           }
 
           function trimRows(tbody) {
@@ -372,7 +377,7 @@ export const CLIENT_SCRIPT = `
               const data = sortShotsData(json.data || []);
               if (data.length === 0) {
                 seen.clear();
-                tbody.innerHTML = '<tr><td colspan="3">No data</td></tr>';
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No data</td></tr>';
                 updateStats(null, null);
                 setChartFromData([]);
                 return;
@@ -483,19 +488,19 @@ export const CLIENT_SCRIPT = `
             const xGridStep = Number.isFinite(options.xGridStep) ? options.xGridStep : (xMode === "time" ? 2 : 1);
             const xLabelStep = Number.isFinite(options.xLabelStep) ? options.xLabelStep : (xMode === "time" ? 2 : 1);
             const showLine = options.showLine !== false;
-            const lineColor = typeof options.lineColor === "string" ? options.lineColor : "#7fdcff";
-            const pointColor = typeof options.pointColor === "string" ? options.pointColor : "#7fdcff";
+            const lineColor = typeof options.lineColor === "string" ? options.lineColor : "#F0B90B";
+            const pointColor = typeof options.pointColor === "string" ? options.pointColor : "#F0B90B";
             const pointRadius = Number.isFinite(options.pointRadius) ? options.pointRadius : 2.5;
             const w = canvas.clientWidth || 0;
             const h = canvas.clientHeight || 0;
             if (w === 0 || h === 0) return;
             ctx.clearRect(0, 0, w, h);
-            ctx.fillStyle = "#0f1113";
+            ctx.fillStyle = "#2B2F36";
             ctx.fillRect(0, 0, w, h);
 
             if (points.length === 0) {
-              ctx.fillStyle = "#7a8a99";
-              ctx.font = "12px Arial, sans-serif";
+              ctx.fillStyle = "#848E9C";
+              ctx.font = "12px BinancePlex, Arial, sans-serif";
               ctx.fillText("No data yet", 12, 20);
               return;
             }
@@ -538,7 +543,7 @@ export const CLIENT_SCRIPT = `
             }
 
             // axis line
-            ctx.strokeStyle = "#22303a";
+            ctx.strokeStyle = "#686A6C";
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(padL, padT + plotH);
@@ -546,7 +551,7 @@ export const CLIENT_SCRIPT = `
             ctx.stroke();
 
             // grid
-            ctx.strokeStyle = "#1f2a33";
+            ctx.strokeStyle = "rgba(230, 232, 234, 0.14)";
             ctx.lineWidth = 1;
             for (const yVal of yVals) {
               const y = yFor(yVal);
@@ -557,7 +562,7 @@ export const CLIENT_SCRIPT = `
             }
 
             // x grid
-            ctx.strokeStyle = "#151d24";
+            ctx.strokeStyle = "rgba(230, 232, 234, 0.08)";
             for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xGridStep) {
               const x = xFor(xVal);
               ctx.beginPath();
@@ -568,7 +573,7 @@ export const CLIENT_SCRIPT = `
 
             // fixed target line (25s)
             const targetY = yFor(TARGET_TIME_SEC);
-            ctx.strokeStyle = "#f1d44a";
+            ctx.strokeStyle = "#FFD000";
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(axisX, targetY);
@@ -577,7 +582,7 @@ export const CLIENT_SCRIPT = `
 
             // legend (top-right)
             const legendText = "Target Time";
-            ctx.font = "12px Arial, sans-serif";
+            ctx.font = "12px BinancePlex, Arial, sans-serif";
             const legendTextW = ctx.measureText(legendText).width;
             const legendPad = 6;
             const sampleW = 20;
@@ -591,19 +596,19 @@ export const CLIENT_SCRIPT = `
             const legendY = Math.max(2, padT - legendH - 4);
             ctx.fillStyle = "rgba(10, 14, 18, 0.78)";
             ctx.fillRect(legendX, legendY, legendW, legendH);
-            ctx.strokeStyle = "#23313c";
+            ctx.strokeStyle = "rgba(255, 208, 0, 0.38)";
             ctx.lineWidth = 1;
             ctx.strokeRect(legendX, legendY, legendW, legendH);
             const sampleY = legendY + Math.floor(legendH / 2) + 0.5;
             const sampleX1 = legendX + legendPad;
             const sampleX2 = sampleX1 + sampleW;
-            ctx.strokeStyle = "#f1d44a";
+            ctx.strokeStyle = "#FFD000";
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(sampleX1, sampleY);
             ctx.lineTo(sampleX2, sampleY);
             ctx.stroke();
-            ctx.fillStyle = "#f1d44a";
+            ctx.fillStyle = "#FFD000";
             ctx.textBaseline = "middle";
             ctx.fillText(legendText, sampleX2 + 8, sampleY);
             ctx.textBaseline = "alphabetic";
@@ -633,8 +638,8 @@ export const CLIENT_SCRIPT = `
             }
 
             // labels
-            ctx.fillStyle = "#7a8a99";
-            ctx.font = "11px Arial, sans-serif";
+            ctx.fillStyle = "#848E9C";
+            ctx.font = "11px BinancePlex, Arial, sans-serif";
             ctx.fillText(xLabel, padL, h - 10);
             if (xMode === "time") {
               for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xLabelStep) {
@@ -656,15 +661,15 @@ export const CLIENT_SCRIPT = `
               const ax = axisCanvas.clientWidth || 0;
               const ay = axisCanvas.clientHeight || 0;
               axisCtx.clearRect(0, 0, ax, ay);
-              axisCtx.fillStyle = "#0b0f13";
+              axisCtx.fillStyle = "#222126";
               axisCtx.fillRect(0, 0, ax, ay);
-              axisCtx.strokeStyle = "#22303a";
+              axisCtx.strokeStyle = "#686A6C";
               axisCtx.lineWidth = 1;
               axisCtx.beginPath();
               axisCtx.moveTo(ax - 1, padT);
               axisCtx.lineTo(ax - 1, padT + plotH);
               axisCtx.stroke();
-              axisCtx.fillStyle = "#7a8a99";
+              axisCtx.fillStyle = "#848E9C";
               axisCtx.textAlign = "right";
               axisCtx.textBaseline = "middle";
               for (const yVal of yVals) {
@@ -689,7 +694,7 @@ export const CLIENT_SCRIPT = `
               xGridStep: 0.5,
               xLabelStep: 0.5,
               showLine: false,
-              pointColor: "#ff4d4f",
+              pointColor: "#F0B90B",
               pointRadius: 3.5
             });
           }
