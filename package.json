@@ -1,0 +1,18 @@
+{
+  "name": "brewcoffee-log",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "test": "node --test",
+    "check:worker": "wrangler deploy --dry-run",
+    "ci": "npm run check:syntax && npm test && npm run check:worker"
+  },
+  "devDependencies": {
+    "wrangler": "4.111.0"
+  }
+}
