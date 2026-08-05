@@ -106,16 +106,20 @@ test("getShotAnalysis aggregates all D1 history while keeping 30-day consistency
     if (sql.includes("GROUP BY date")) {
       return { results: [{ date: "2026-01-10", count: 10, average_ms: 25_000, consistent: 4 }] };
     }
+    if (sql.includes("SELECT created_at, shot_ms")) {
+      return { results: [{ created_at: Date.parse("2026-01-10T03:00:00Z"), shot_ms: 25_000 }] };
+    }
     if (sql.includes("COUNT(*) AS total")) return { total: 20, consistent: 10 };
     throw new Error(`Unexpected query: ${sql}`);
   });
 
-  const result = await getShotAnalysis(env, { now: NOW });
+  const result = await getShotAnalysis(env, { now: NOW, includePoints: true });
   assert.deepEqual(result.range, { start_date: "2026-01-10", end_date: "2026-08-05" });
   assert.equal(result.total, 100);
   assert.equal(result.consistency_percent, 35);
   assert.equal(result.consistency_30d_percent, 50);
   assert.equal(result.daily[0].consistency_percent, 40);
+  assert.deepEqual(result.shot_points, [{ created_at: Date.parse("2026-01-10T03:00:00Z"), shot_ms: 25_000 }]);
 });
 
 function mockEnv(handler) {

@@ -46,17 +46,18 @@ async function routeRequest(request, env) {
 
   if (url.pathname === "/assets/app.css") {
     if (request.method !== "GET") return methodNotAllowed(["GET"]);
-    return text(PAGE_STYLES, "text/css; charset=utf-8");
+    return text(PAGE_STYLES, "text/css; charset=utf-8", 200, { "Cache-Control": "no-store, max-age=0" });
   }
 
   if (url.pathname === "/assets/app.js") {
     if (request.method !== "GET") return methodNotAllowed(["GET"]);
-    return text(CLIENT_SCRIPT, "text/javascript; charset=utf-8");
+    return text(CLIENT_SCRIPT, "text/javascript; charset=utf-8", 200, { "Cache-Control": "no-store, max-age=0" });
   }
 
   if (url.pathname === "/") {
     if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
     if (!env.DB) return new Response("DB not bound", { status: 500 });
+    const view = url.searchParams.get("view") || "daily";
     const [shots, analysis] = await Promise.all([
       getShotsForDate(env, {
         date: url.searchParams.get("date") || "",
@@ -65,10 +66,16 @@ async function routeRequest(request, env) {
       getShotAnalysis(env, {
         start: url.searchParams.get("analysis_start") || "",
         end: url.searchParams.get("analysis_end") || "",
+        includePoints: view === "shots",
       }),
     ]);
     const nonce = crypto.randomUUID();
-    return withSecurityHeaders(renderHomePage({ shots, analysis, nonce }), nonce);
+    return withSecurityHeaders(renderHomePage({
+      shots,
+      analysis,
+      nonce,
+      view,
+    }), nonce);
   }
 
   if (url.pathname === "/api/ws") {
@@ -117,6 +124,7 @@ async function routeRequest(request, env) {
     const result = await getShotAnalysis(env, {
       start: url.searchParams.get("start") || "",
       end: url.searchParams.get("end") || "",
+      includePoints: url.searchParams.get("include_points") === "1",
     });
     return json({ ok: true, data: result }, origin, ALLOWED_ORIGIN);
   }

@@ -1,6 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
+const ASSET_VERSION = "analysis2";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -17,6 +18,7 @@ export function renderHomePage(model = {}) {
   const analysisTotal = analysis ? Number(analysis.total) || 0 : 0;
   const analysisAverage = analysis ? formatShot(analysis.average_ms) : "—";
   const consistency30d = analysis ? Number(analysis.consistency_30d_percent) || 0 : 0;
+  const chartMode = model.view === "shots" ? "shots" : "daily";
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -25,7 +27,7 @@ export function renderHomePage(model = {}) {
   <meta name="theme-color" content="#0b0a09">
   <meta name="description" content="A refined realtime shot log for the Casadio Undici espresso machine.">
   <title>BrewLedger — Casadio Shot Log</title>
-  <link rel="stylesheet" href="/assets/app.css?v=history1">
+  <link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION}">
 </head>
 <body>
   <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -130,7 +132,7 @@ export function renderHomePage(model = {}) {
           <h2>Extraction analysis</h2>
           <p>Explore daily averages across any date range stored in D1.</p>
         </div>
-        ${renderAnalysisControls(analysisRange, analysisWindow, selectedDate, selectedBucket)}
+        ${renderAnalysisControls(analysisRange, analysisWindow, selectedDate, selectedBucket, chartMode)}
       </div>
       <script nonce="${scriptNonce}">(()=>{const f=document.getElementById("analysisDateForm");if(f)f.querySelectorAll('input[type="date"]').forEach(i=>i.addEventListener("change",()=>f.requestSubmit?f.requestSubmit():f.submit()));})();</script>
 
@@ -157,10 +159,17 @@ export function renderHomePage(model = {}) {
         <div class="panel trend-panel reveal">
           <div class="panel-title">
             <div><span>Daily rhythm</span><strong>Average extraction time</strong></div>
-            <span class="target-legend"><i></i> 25s target</span>
+            <div class="chart-tools">
+              <fieldset class="chart-mode" aria-label="Chart view">
+                <legend>View</legend>
+                <label><input type="radio" name="chartMode" value="daily"${chartMode === "daily" ? " checked" : ""}> <span>By day</span></label>
+                <label><input type="radio" name="chartMode" value="shots"${chartMode === "shots" ? " checked" : ""}> <span>By shot</span></label>
+              </fieldset>
+              <span class="target-legend"><i></i> 25s target</span>
+            </div>
           </div>
           <div class="chart-shell" id="chartShell">
-            <div class="trend-chart" id="trendChart" role="img" aria-label="Daily average extraction time chart">${renderTrendChart(analysis)}</div>
+            <div class="trend-chart" id="trendChart" role="img" aria-label="Daily average extraction time chart">${renderTrendChart(analysis, chartMode)}</div>
           </div>
         </div>
       </div>
@@ -241,16 +250,18 @@ function renderDateControls(selectedDate, dateWindow, bucket) {
   </form>`;
 }
 
-function renderAnalysisControls(range, dateWindow, selectedDate, bucket) {
+function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMode = "daily") {
   const safeRange = range || { start_date: "", end_date: "" };
   const safeWindow = dateWindow || { min_date: "", max_date: "" };
   const resetParams = new URLSearchParams();
   if (selectedDate) resetParams.set("date", selectedDate);
   if (bucket && bucket !== "all") resetParams.set("bucket", bucket);
+  if (chartMode === "shots") resetParams.set("view", "shots");
   const resetHref = "/" + (resetParams.toString() ? "?" + resetParams.toString() : "") + "#analysis";
   return `<form class="analysis-date-controls" id="analysisDateForm" method="get" action="/#analysis">
     <input type="hidden" name="date" value="${escapeHtml(selectedDate)}">
     <input type="hidden" name="bucket" value="${escapeHtml(bucket || "all")}">
+    <input type="hidden" name="view" value="${escapeHtml(chartMode)}">
     <label><span>From</span><input id="analysisStart" name="analysis_start" type="date" value="${escapeHtml(safeRange.start_date)}" min="${escapeHtml(safeWindow.min_date)}" max="${escapeHtml(safeWindow.max_date)}" required></label>
     <span class="range-arrow" aria-hidden="true">→</span>
     <label><span>To</span><input id="analysisEnd" name="analysis_end" type="date" value="${escapeHtml(safeRange.end_date)}" min="${escapeHtml(safeWindow.min_date)}" max="${escapeHtml(safeWindow.max_date)}" required></label>
@@ -305,9 +316,11 @@ function renderDistribution(analysis, selectedDate) {
 function renderBucketMix(analysis) {
   const buckets = analysis && analysis.buckets ? analysis.buckets : {};
   const total = analysis ? Number(analysis.total) || 0 : 0;
-  const radius = 74;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
+  const cx = 132;
+  const cy = 122;
+  const outerRadius = 96;
+  const innerRadius = 57;
+  let angle = -90;
   const segments = [
     ["under20", "<20s", "#899eb7"],
     ["20to25", "20–25s", "#b49f82"],
@@ -316,24 +329,59 @@ function renderBucketMix(analysis) {
     ["over30", ">30s", "#d08c7d"],
   ].map(([key, label, color]) => {
     const count = Number(buckets[key]) || 0;
-    const length = total > 0 ? count / total * circumference : 0;
-    const segment = `<circle class="donut-segment" cx="120" cy="120" r="${radius}" stroke="${color}" stroke-dasharray="${length.toFixed(2)} ${(circumference - length).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}"><title>${escapeHtml(label)} · ${count} shots</title></circle>`;
-    offset += length;
-    return { key, label, color, count, segment };
+    const span = total > 0 ? count / total * 360 : 0;
+    const start = angle;
+    const end = angle + Math.min(span, 359.99);
+    angle = end;
+    return { key, label, color, count, start, end, span };
   });
+  const slices = segments.map(({ label, color, count, start, end, span }) => {
+    if (span <= 0) return "";
+    return `<path class="pie-slice" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start, end)}" fill="${color}"><title>${escapeHtml(label)} · ${count} shots</title></path>`;
+  }).join("");
+  const labels = segments.map(({ label, count, start, span }) => {
+    const percent = total > 0 ? Math.round(count * 100 / total) : 0;
+    if (span <= 0) return "";
+    const mid = start + span / 2;
+    if (percent >= 7) {
+      const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
+      return `<text class="pie-slice-label" x="${point.x.toFixed(2)}" y="${(point.y + 3).toFixed(2)}" text-anchor="middle">${percent}%</text>`;
+    }
+    const lineStart = polarPoint(cx, cy, outerRadius + 2, mid);
+    const lineEnd = polarPoint(cx, cy, outerRadius + 21, mid);
+    const right = lineEnd.x >= cx;
+    const textX = lineEnd.x + (right ? 5 : -5);
+    return `<path class="pie-callout-line" d="M${lineStart.x.toFixed(2)} ${lineStart.y.toFixed(2)} L${lineEnd.x.toFixed(2)} ${lineEnd.y.toFixed(2)}"></path><text class="pie-callout-label" x="${textX.toFixed(2)}" y="${(lineEnd.y + 3).toFixed(2)}" text-anchor="${right ? "start" : "end"}">${escapeHtml(label)} ${percent}%</text>`;
+  }).join("");
   const legend = segments.map(({ label, color, count }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
     return `<div class="donut-legend-row"><span><i style="background:${color}"></i>${escapeHtml(label)}</span><strong>${percent}%</strong></div>`;
   }).join("");
   return `<div class="donut-shell">
-    <svg class="donut-chart" viewBox="0 0 240 240" role="img" aria-label="Shot distribution by extraction time">
-      <circle class="donut-track" cx="120" cy="120" r="${radius}"></circle>
-      <g transform="rotate(-90 120 120)">${segments.map(({ segment }) => segment).join("")}</g>
-      <text class="donut-total" x="120" y="116" text-anchor="middle">${total}</text>
-      <text class="donut-caption" x="120" y="139" text-anchor="middle">shots</text>
+    <svg class="donut-chart" viewBox="0 0 264 244" role="img" aria-label="Shot distribution by extraction time">
+      <circle class="donut-track" cx="${cx}" cy="${cy}" r="${outerRadius}"></circle>
+      ${slices}
+      ${labels}
+      <circle class="donut-hole" cx="${cx}" cy="${cy}" r="${innerRadius}"></circle>
+      <text class="donut-total" x="${cx}" y="${cy - 3}" text-anchor="middle">${total}</text>
+      <text class="donut-caption" x="${cx}" y="${cy + 19}" text-anchor="middle">shots</text>
     </svg>
   </div>
   <div class="donut-legend">${legend}</div>`;
+}
+
+function polarPoint(cx, cy, radius, angle) {
+  const radians = angle * Math.PI / 180;
+  return { x: cx + radius * Math.cos(radians), y: cy + radius * Math.sin(radians) };
+}
+
+function pieSlicePath(cx, cy, outerRadius, innerRadius, start, end) {
+  const outerStart = polarPoint(cx, cy, outerRadius, start);
+  const outerEnd = polarPoint(cx, cy, outerRadius, end);
+  const innerEnd = polarPoint(cx, cy, innerRadius, end);
+  const innerStart = polarPoint(cx, cy, innerRadius, start);
+  const large = end - start > 180 ? 1 : 0;
+  return `M${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)} A${outerRadius} ${outerRadius} 0 ${large} 1 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)} L${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)} A${innerRadius} ${innerRadius} 0 ${large} 0 ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)} Z`;
 }
 
 function renderAnalysisPeriod(analysis) {
@@ -345,7 +393,8 @@ function renderAnalysisPeriod(analysis) {
   return `${label} · ${formatDateLabel(range.start_date)} → ${formatDateLabel(range.end_date)} · ${Number(analysis.total) || 0} shots · ${Number(analysis.consistency_percent) || 0}% consistent at 24–27s`;
 }
 
-function renderTrendChart(analysis) {
+function renderTrendChart(analysis, mode = "daily") {
+  if (mode === "shots") return renderShotScatterChart(analysis);
   const rows = analysis && Array.isArray(analysis.daily)
     ? analysis.daily.filter((row) => Number.isFinite(Number(row.average_ms)))
     : [];
@@ -384,10 +433,13 @@ function renderTrendChart(analysis) {
     return `<text class="trend-axis" x="${points[index].x.toFixed(2)}" y="${height - 10}" text-anchor="${anchor}">${escapeHtml(formatDateLabel(rows[index].date))}</text>`;
   }).join("");
   const dots = points.map((point) =>
-    `<circle class="trend-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4"><title>${escapeHtml(formatDateLabel(point.row.date))} · ${Number(point.row.count) || 0} shots · ${formatShot(point.row.average_ms)} average · ${Number(point.row.consistency_percent) || 0}% consistent</title></circle>`
+    `<circle class="trend-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${rows.length === 1 ? 6 : 4}"><title>${escapeHtml(formatDateLabel(point.row.date))} · ${Number(point.row.count) || 0} shots · ${formatShot(point.row.average_ms)} average · ${Number(point.row.consistency_percent) || 0}% consistent</title></circle>`
   ).join("");
   const bandTop = yFor(27);
   const bandBottom = yFor(24);
+  const singleDayLabel = rows.length === 1
+    ? `<text class="trend-single-value" x="${width / 2}" y="${pad.top + 25}" text-anchor="middle">${formatShot(rows[0].average_ms)} average · ${Number(rows[0].count) || 0} shots</text>`
+    : "";
 
   return `<svg viewBox="0 0 ${width} ${height}" aria-hidden="true">
     <defs><linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c99b64" stop-opacity=".3"></stop><stop offset="1" stop-color="#c99b64" stop-opacity="0"></stop></linearGradient></defs>
@@ -398,7 +450,70 @@ function renderTrendChart(analysis) {
     <path class="trend-line" d="${linePath}"></path>
     ${dots}
     ${labels}
+    ${singleDayLabel}
   </svg>`;
+}
+
+function renderShotScatterChart(analysis) {
+  const points = analysis && Array.isArray(analysis.shot_points)
+    ? analysis.shot_points.filter((point) => Number.isFinite(Number(point.created_at)) && Number.isFinite(Number(point.shot_ms)))
+    : [];
+  if (points.length === 0) return '<p class="chart-empty">No shot data in this date range.</p>';
+
+  const width = 960;
+  const height = 370;
+  const pad = { top: 24, right: 22, bottom: 46, left: 48 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const xFor = (minutes) => pad.left + Math.max(0, Math.min(1, minutes / (23 * 60 + 30))) * plotWidth;
+  const yFor = (seconds) => pad.top + (40 - Math.max(0, Math.min(40, seconds))) * plotHeight / 40;
+  const yTicks = [0, 10, 20, 30, 40];
+  const yGrid = yTicks.map((value) => {
+    const y = yFor(value);
+    return `<g><line class="scatter-grid" x1="${pad.left}" y1="${y.toFixed(2)}" x2="${width - pad.right}" y2="${y.toFixed(2)}"></line><text class="scatter-axis" x="${pad.left - 10}" y="${(y + 3).toFixed(2)}" text-anchor="end">${value}s</text></g>`;
+  }).join("");
+  const xTicks = Array.from({ length: 48 }, (_, index) => index * 30);
+  const xGrid = xTicks.map((minutes) => {
+    const x = xFor(minutes);
+    const major = minutes % 60 === 0 || minutes === 1410;
+    return `<g><line class="scatter-grid${major ? " major" : ""}" x1="${x.toFixed(2)}" y1="${pad.top}" x2="${x.toFixed(2)}" y2="${height - pad.bottom}"></line>${major ? `<text class="scatter-axis" x="${x.toFixed(2)}" y="${height - 13}" text-anchor="${minutes === 0 ? "start" : minutes === 1410 ? "end" : "middle"}">${formatTimeOfDay(minutes)}</text>` : ""}</g>`;
+  }).join("");
+  const dots = points.map((point) => {
+    const seconds = Number(point.shot_ms) / 1000;
+    const minutes = bangkokMinutes(point.created_at);
+    const bucket = bucketInfo(point.shot_ms);
+    return `<circle class="scatter-point" cx="${xFor(minutes).toFixed(2)}" cy="${yFor(seconds).toFixed(2)}" r="3.4" fill="${bucketColor(bucket.key)}"><title>${escapeHtml(formatTimeOfDay(minutes))} · ${formatShot(point.shot_ms)} · ${escapeHtml(bucket.name)}</title></circle>`;
+  }).join("");
+  const bandTop = yFor(27);
+  const bandBottom = yFor(24);
+
+  return `<svg class="scatter-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Shot extraction time by time of day">
+    <rect class="consistency-band" x="${pad.left}" y="${bandTop.toFixed(2)}" width="${plotWidth}" height="${(bandBottom - bandTop).toFixed(2)}"></rect>
+    ${yGrid}
+    ${xGrid}
+    <line class="target-line" x1="${pad.left}" y1="${yFor(25).toFixed(2)}" x2="${width - pad.right}" y2="${yFor(25).toFixed(2)}"></line>
+    ${dots}
+  </svg>`;
+}
+
+function bangkokMinutes(timestamp) {
+  const shifted = ((Number(timestamp) + 7 * 60 * 60 * 1000) % (24 * 60 * 60 * 1000) + (24 * 60 * 60 * 1000)) % (24 * 60 * 60 * 1000);
+  return Math.floor(shifted / 60_000) + (shifted % 60_000) / 60_000;
+}
+
+function formatTimeOfDay(minutes) {
+  const safe = Math.max(0, Math.min(1439, Math.round(Number(minutes) || 0)));
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function bucketColor(key) {
+  return {
+    under20: "#899eb7",
+    "20to25": "#b49f82",
+    "25to28": "#92b79c",
+    "28to30": "#c99b64",
+    over30: "#d08c7d",
+  }[key] || "#777168";
 }
 
 function bucketInfo(ms) {

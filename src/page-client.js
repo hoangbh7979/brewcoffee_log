@@ -21,6 +21,7 @@ function clientApp() {
     analysisRange: { start_date: "", end_date: "" },
     analysisWindow: { min_date: "", max_date: "" },
     analysisAllHistory: true,
+    chartMode: new URL(location.href).searchParams.get("view") === "shots" ? "shots" : "daily",
   };
 
   const elements = {
@@ -35,6 +36,7 @@ function clientApp() {
     analysisStart: document.getElementById("analysisStart"),
     analysisEnd: document.getElementById("analysisEnd"),
     analysisAll: document.getElementById("analysisAll"),
+    chartModes: Array.from(document.querySelectorAll('input[name="chartMode"]')),
     analysisPeriod: document.getElementById("analysisPeriod"),
     livePill: document.getElementById("livePill"),
     liveStatus: document.getElementById("liveStatus"),
@@ -158,6 +160,7 @@ function clientApp() {
       state.analysisAllHistory = isAllHistory();
       syncDateControls();
       syncAnalysisControls();
+      syncChartMode();
       renderShots();
       updateSelectedMetrics();
       renderAnalysis();
@@ -203,6 +206,7 @@ function clientApp() {
         params.set("start", state.analysisRange.start_date);
         params.set("end", state.analysisRange.end_date);
       }
+      if (options.includePoints || state.chartMode === "shots") params.set("include_points", "1");
       const query = params.toString();
       const body = await apiJson("/api/analysis" + (query ? "?" + query : ""));
       if (requestId !== analysisRequest) return;
@@ -272,6 +276,12 @@ function clientApp() {
     elements.analysisAll.classList.toggle("active", state.analysisAllHistory);
   }
 
+  function syncChartMode() {
+    elements.chartModes.forEach((input) => {
+      input.checked = input.value === state.chartMode;
+    });
+  }
+
   function isAllHistory() {
     return Boolean(
       state.analysisRange.start_date
@@ -287,6 +297,21 @@ function clientApp() {
     else url.searchParams.set("bucket", state.filter);
     url.searchParams.delete("page");
     history.replaceState(null, "", url.pathname + "?" + url.searchParams.toString() + url.hash);
+  }
+
+  function changeChartMode(mode) {
+    state.chartMode = mode === "shots" ? "shots" : "daily";
+    syncChartMode();
+    const url = new URL(location.href);
+    if (state.chartMode === "shots") url.searchParams.set("view", "shots");
+    else url.searchParams.delete("view");
+    history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "") + url.hash);
+    if (state.chartMode === "shots" && !Array.isArray(state.analysis.shot_points)) {
+      elements.chart.innerHTML = '<p class="chart-empty">Loading shot timeline…</p>';
+      loadAnalysis({ includePoints: true });
+      return;
+    }
+    renderAnalysis();
   }
 
   function updateSelectedMetrics() {
@@ -320,7 +345,7 @@ function clientApp() {
     }).join("");
     elements.analysisPeriod.textContent = analysisPeriodText(analysis);
     elements.bucketMix.innerHTML = bucketMixMarkup(analysis);
-    elements.chart.innerHTML = trendChartMarkup(analysis);
+    elements.chart.innerHTML = trendChartMarkup(analysis, state.chartMode);
   }
 
   function analysisPeriodText(analysis) {
@@ -335,29 +360,70 @@ function clientApp() {
   function bucketMixMarkup(analysis) {
     const buckets = analysis && analysis.buckets ? analysis.buckets : {};
     const total = analysis ? Number(analysis.total) || 0 : 0;
-    const radius = 74;
-    const circumference = 2 * Math.PI * radius;
-    let offset = 0;
+    const cx = 132;
+    const cy = 122;
+    const outerRadius = 96;
+    const innerRadius = 57;
+    let angle = -90;
     const segments = BUCKETS.map((bucket) => {
       const count = Number(buckets[bucket.key]) || 0;
-      const length = total > 0 ? count / total * circumference : 0;
-      const segment = '<circle class="donut-segment" cx="120" cy="120" r="' + radius + '" stroke="' + bucket.color + '" stroke-dasharray="' + length.toFixed(2) + ' ' + (circumference - length).toFixed(2) + '" stroke-dashoffset="' + (-offset).toFixed(2) + '"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots</title></circle>';
-      offset += length;
-      return { bucket, count, segment };
+      const span = total > 0 ? count / total * 360 : 0;
+      const start = angle;
+      const end = angle + Math.min(span, 359.99);
+      angle = end;
+      return { bucket, count, start, end, span };
     });
+    const slices = segments.map(({ bucket, count, start, end, span }) => {
+      if (span <= 0) return "";
+      const path = pieSlicePath(cx, cy, outerRadius, innerRadius, start, end);
+      return '<path class="pie-slice" d="' + path + '" fill="' + bucket.color + '"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots</title></path>';
+    }).join("");
+    const labels = segments.map(({ bucket, count, start, end, span }) => {
+      const percent = total > 0 ? Math.round(count * 100 / total) : 0;
+      if (span <= 0) return "";
+      const mid = start + span / 2;
+      if (percent >= 7) {
+        const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
+        return '<text class="pie-slice-label" x="' + point.x.toFixed(2) + '" y="' + (point.y + 3).toFixed(2) + '" text-anchor="middle">' + percent + '%</text>';
+      }
+      const lineStart = polarPoint(cx, cy, outerRadius + 2, mid);
+      const lineEnd = polarPoint(cx, cy, outerRadius + 21, mid);
+      const right = lineEnd.x >= cx;
+      const textX = lineEnd.x + (right ? 5 : -5);
+      return '<path class="pie-callout-line" d="M' + lineStart.x.toFixed(2) + ' ' + lineStart.y.toFixed(2) + ' L' + lineEnd.x.toFixed(2) + ' ' + lineEnd.y.toFixed(2) + '"></path><text class="pie-callout-label" x="' + textX.toFixed(2) + '" y="' + (lineEnd.y + 3).toFixed(2) + '" text-anchor="' + (right ? "start" : "end") + '">' + escapeHtml(bucket.label) + ' ' + percent + '%</text>';
+    }).join("");
     const legend = segments.map(({ bucket, count }) => {
       const percent = total > 0 ? Math.round(count * 100 / total) : 0;
       return '<div class="donut-legend-row"><span><i style="background:' + bucket.color + '"></i>' + escapeHtml(bucket.label) + '</span><strong>' + percent + '%</strong></div>';
     }).join("");
-    return '<div class="donut-shell"><svg class="donut-chart" viewBox="0 0 240 240" role="img" aria-label="Shot distribution by extraction time">' +
-      '<circle class="donut-track" cx="120" cy="120" r="' + radius + '"></circle>' +
-      '<g transform="rotate(-90 120 120)">' + segments.map(({ segment }) => segment).join("") + '</g>' +
-      '<text class="donut-total" x="120" y="116" text-anchor="middle">' + total + '</text>' +
-      '<text class="donut-caption" x="120" y="139" text-anchor="middle">shots</text></svg></div>' +
+    return '<div class="donut-shell"><svg class="donut-chart" viewBox="0 0 264 244" role="img" aria-label="Shot distribution by extraction time">' +
+      '<circle class="donut-track" cx="' + cx + '" cy="' + cy + '" r="' + outerRadius + '"></circle>' +
+      slices + labels +
+      '<circle class="donut-hole" cx="' + cx + '" cy="' + cy + '" r="' + innerRadius + '"></circle>' +
+      '<text class="donut-total" x="' + cx + '" y="' + (cy - 3) + '" text-anchor="middle">' + total + '</text>' +
+      '<text class="donut-caption" x="' + cx + '" y="' + (cy + 19) + '" text-anchor="middle">shots</text></svg></div>' +
       '<div class="donut-legend">' + legend + '</div>';
   }
 
-  function trendChartMarkup(analysis) {
+  function polarPoint(cx, cy, radius, angle) {
+    const radians = angle * Math.PI / 180;
+    return { x: cx + radius * Math.cos(radians), y: cy + radius * Math.sin(radians) };
+  }
+
+  function pieSlicePath(cx, cy, outerRadius, innerRadius, start, end) {
+    const outerStart = polarPoint(cx, cy, outerRadius, start);
+    const outerEnd = polarPoint(cx, cy, outerRadius, end);
+    const innerEnd = polarPoint(cx, cy, innerRadius, end);
+    const innerStart = polarPoint(cx, cy, innerRadius, start);
+    const large = end - start > 180 ? 1 : 0;
+    return 'M' + outerStart.x.toFixed(2) + ' ' + outerStart.y.toFixed(2) +
+      ' A' + outerRadius + ' ' + outerRadius + ' 0 ' + large + ' 1 ' + outerEnd.x.toFixed(2) + ' ' + outerEnd.y.toFixed(2) +
+      ' L' + innerEnd.x.toFixed(2) + ' ' + innerEnd.y.toFixed(2) +
+      ' A' + innerRadius + ' ' + innerRadius + ' 0 ' + large + ' 0 ' + innerStart.x.toFixed(2) + ' ' + innerStart.y.toFixed(2) + ' Z';
+  }
+
+  function trendChartMarkup(analysis, mode) {
+    if (mode === "shots") return shotScatterChartMarkup(analysis);
     const rows = analysis && Array.isArray(analysis.daily)
       ? analysis.daily.filter((row) => Number.isFinite(Number(row.average_ms)))
       : [];
@@ -390,10 +456,13 @@ function clientApp() {
       return '<text class="trend-axis" x="' + points[index].x.toFixed(2) + '" y="' + (height - 10) + '" text-anchor="' + anchor + '">' + escapeHtml(formatDateLabel(rows[index].date)) + "</text>";
     }).join("");
     const dots = points.map((point) =>
-      '<circle class="trend-point" cx="' + point.x.toFixed(2) + '" cy="' + point.y.toFixed(2) + '" r="4"><title>' + escapeHtml(formatDateLabel(point.row.date)) + " · " + (Number(point.row.count) || 0) + " shots · " + formatShot(point.row.average_ms) + " average · " + (Number(point.row.consistency_percent) || 0) + "% consistent</title></circle>"
+      '<circle class="trend-point" cx="' + point.x.toFixed(2) + '" cy="' + point.y.toFixed(2) + '" r="' + (rows.length === 1 ? 6 : 4) + '"><title>' + escapeHtml(formatDateLabel(point.row.date)) + " · " + (Number(point.row.count) || 0) + " shots · " + formatShot(point.row.average_ms) + " average · " + (Number(point.row.consistency_percent) || 0) + "% consistent</title></circle>"
     ).join("");
     const bandTop = yFor(27);
     const bandBottom = yFor(24);
+    const singleDayLabel = rows.length === 1
+      ? '<text class="trend-single-value" x="' + (width / 2) + '" y="' + (pad.top + 25) + '" text-anchor="middle">' + formatShot(rows[0].average_ms) + ' average · ' + (Number(rows[0].count) || 0) + ' shots</text>'
+      : "";
 
     return '<svg viewBox="0 0 ' + width + " " + height + '" aria-hidden="true">' +
       '<defs><linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c99b64" stop-opacity=".3"></stop><stop offset="1" stop-color="#c99b64" stop-opacity="0"></stop></linearGradient></defs>' +
@@ -401,7 +470,55 @@ function clientApp() {
       grid +
       '<line class="target-line" x1="' + pad.left + '" y1="' + yFor(25).toFixed(2) + '" x2="' + (width - pad.right) + '" y2="' + yFor(25).toFixed(2) + '"></line>' +
       (areaPath ? '<path class="trend-area" d="' + areaPath + '"></path>' : "") +
-      '<path class="trend-line" d="' + linePath + '"></path>' + dots + labels + "</svg>";
+      '<path class="trend-line" d="' + linePath + '"></path>' + dots + labels + singleDayLabel + "</svg>";
+  }
+
+  function shotScatterChartMarkup(analysis) {
+    const points = analysis && Array.isArray(analysis.shot_points)
+      ? analysis.shot_points.filter((point) => Number.isFinite(Number(point.created_at)) && Number.isFinite(Number(point.shot_ms)))
+      : [];
+    if (points.length === 0) return '<p class="chart-empty">No shot data in this date range.</p>';
+
+    const width = 960;
+    const height = 370;
+    const pad = { top: 24, right: 22, bottom: 46, left: 48 };
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const xFor = (minutes) => pad.left + Math.max(0, Math.min(1, minutes / (23 * 60 + 30))) * plotWidth;
+    const yFor = (seconds) => pad.top + (40 - Math.max(0, Math.min(40, seconds))) * plotHeight / 40;
+    const yTicks = [0, 10, 20, 30, 40];
+    const yGrid = yTicks.map((value) => {
+      const y = yFor(value);
+      return '<g><line class="scatter-grid" x1="' + pad.left + '" y1="' + y.toFixed(2) + '" x2="' + (width - pad.right) + '" y2="' + y.toFixed(2) + '"></line><text class="scatter-axis" x="' + (pad.left - 10) + '" y="' + (y + 3).toFixed(2) + '" text-anchor="end">' + value + 's</text></g>';
+    }).join("");
+    const xTicks = Array.from({ length: 48 }, (_, index) => index * 30);
+    const xGrid = xTicks.map((minutes) => {
+      const x = xFor(minutes);
+      const major = minutes % 60 === 0 || minutes === 1410;
+      return '<g><line class="scatter-grid' + (major ? ' major' : '') + '" x1="' + x.toFixed(2) + '" y1="' + pad.top + '" x2="' + x.toFixed(2) + '" y2="' + (height - pad.bottom) + '"></line>' + (major ? '<text class="scatter-axis" x="' + x.toFixed(2) + '" y="' + (height - 13) + '" text-anchor="' + (minutes === 0 ? 'start' : minutes === 1410 ? 'end' : 'middle') + '">' + formatTimeOfDay(minutes) + '</text>' : '') + '</g>';
+    }).join("");
+    const dots = points.map((point) => {
+      const seconds = Number(point.shot_ms) / 1000;
+      const minutes = bangkokMinutes(point.created_at);
+      const bucket = bucketInfo(bucketFor(point.shot_ms));
+      return '<circle class="scatter-point" cx="' + xFor(minutes).toFixed(2) + '" cy="' + yFor(seconds).toFixed(2) + '" r="3.4" fill="' + bucket.color + '"><title>' + escapeHtml(formatTimeOfDay(minutes)) + ' · ' + escapeHtml(formatShot(point.shot_ms)) + ' · ' + escapeHtml(bucket.name) + '</title></circle>';
+    }).join("");
+    const bandTop = yFor(27);
+    const bandBottom = yFor(24);
+    return '<svg class="scatter-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Shot extraction time by time of day">' +
+      '<rect class="consistency-band" x="' + pad.left + '" y="' + bandTop.toFixed(2) + '" width="' + plotWidth + '" height="' + (bandBottom - bandTop).toFixed(2) + '"></rect>' +
+      yGrid + xGrid +
+      '<line class="target-line" x1="' + pad.left + '" y1="' + yFor(25).toFixed(2) + '" x2="' + (width - pad.right) + '" y2="' + yFor(25).toFixed(2) + '"></line>' + dots + '</svg>';
+  }
+
+  function bangkokMinutes(timestamp) {
+    const shifted = ((Number(timestamp) + 7 * 60 * 60 * 1000) % (24 * 60 * 60 * 1000) + (24 * 60 * 60 * 1000)) % (24 * 60 * 60 * 1000);
+    return Math.floor(shifted / 60_000) + (shifted % 60_000) / 60_000;
+  }
+
+  function formatTimeOfDay(minutes) {
+    const safe = Math.max(0, Math.min(1439, Math.round(Number(minutes) || 0)));
+    return String(Math.floor(safe / 60)).padStart(2, "0") + ":" + String(safe % 60).padStart(2, "0");
   }
 
   function openShot(index) {
@@ -534,6 +651,7 @@ function clientApp() {
   elements.dialog.addEventListener("click", (event) => {
     if (event.target === elements.dialog) elements.dialog.close();
   });
+  elements.chartModes.forEach((input) => input.addEventListener("change", () => changeChartMode(input.value)));
 
   const sections = Array.from(document.querySelectorAll(".section-anchor"));
   const navLinks = Array.from(document.querySelectorAll("[data-nav]"));

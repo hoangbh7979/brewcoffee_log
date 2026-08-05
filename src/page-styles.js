@@ -399,10 +399,18 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .empty-state { height: 190px; text-align: center; color: var(--muted); cursor: default; }
 .loading-row { cursor: default; }
 .loading-line { display: block; height: 10px; border-radius: 999px; background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.1), rgba(255,255,255,.04)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-.analysis-grid { display: grid; grid-template-columns: .78fr .82fr 1.4fr; gap: 18px; }
+.analysis-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, .82fr) minmax(360px, 1.18fr);
+  grid-template-areas: "distribution mix" "trend trend";
+  gap: 18px;
+}
 .distribution-panel,
 .mix-panel,
 .trend-panel { padding: 28px; min-height: 470px; }
+.distribution-panel { grid-area: distribution; }
+.mix-panel { grid-area: mix; }
+.trend-panel { grid-area: trend; }
 .panel-title { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 32px; }
 .panel-title > div { display: grid; gap: 7px; }
 .panel-title span { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
@@ -428,11 +436,15 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .interaction-hint { margin: 27px 0 0; color: var(--dim); font-size: 11px; }
 .bucket-mix { display: grid; gap: 18px; }
 .donut-shell { display: grid; place-items: center; min-height: 230px; }
-.donut-chart { width: min(100%, 235px); height: auto; overflow: visible; }
+.donut-chart { width: min(100%, 330px); height: auto; overflow: visible; }
 .donut-track,
-.donut-segment { fill: none; stroke-width: 27; }
-.donut-track { stroke: rgba(255,255,255,.06); }
-.donut-segment { stroke-linecap: butt; transition: stroke-dasharray 500ms ease, stroke-dashoffset 500ms ease; }
+.donut-track { fill: rgba(255,255,255,.035); stroke: rgba(255,255,255,.06); stroke-width: 1; }
+.donut-hole { fill: #171513; stroke: rgba(255,255,255,.06); stroke-width: 1; }
+.pie-slice { stroke: #171513; stroke-width: 1.5; stroke-linejoin: round; transition: opacity 180ms ease, transform 180ms ease; transform-origin: 132px 122px; }
+.pie-slice:hover { opacity: .82; }
+.pie-slice-label { fill: #171513; font: 700 13px/1 Arial, sans-serif; pointer-events: none; }
+.pie-callout-line { fill: none; stroke: var(--dim); stroke-width: 1; }
+.pie-callout-label { fill: var(--muted); font: 10px Arial, sans-serif; }
 .donut-total { fill: var(--text); font: 400 30px/1 Georgia, serif; }
 .donut-caption { fill: var(--dim); font: 10px Arial, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .donut-legend { display: grid; gap: 9px; }
@@ -442,6 +454,13 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .donut-legend-row strong { color: var(--text); font: 400 14px/1 Georgia, serif; }
 .target-legend { display: inline-flex; align-items: center; gap: 7px; }
 .target-legend i { display: inline-block; width: 16px; border-top: 1px dashed var(--accent); }
+.chart-tools { display: grid; justify-items: end; gap: 10px; }
+.chart-mode { margin: 0; padding: 0; display: inline-flex; align-items: center; gap: 9px; border: 0; color: var(--dim); font-size: 10px; }
+.chart-mode legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.chart-mode label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.chart-mode input { margin: 0; accent-color: var(--accent); }
+.chart-mode label:has(input:checked) { color: var(--text); }
+.trend-single-value { fill: var(--text); font: 400 16px/1 Georgia, serif; }
 .chart-shell { height: 350px; position: relative; }
 .trend-chart { width: 100%; height: 100%; display: grid; place-items: center; }
 .trend-chart svg { width: 100%; height: 100%; overflow: visible; }
@@ -453,6 +472,12 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .trend-line { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .trend-point { fill: var(--cream); stroke: #171513; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: help; transition: opacity 160ms ease; }
 .trend-point:hover { opacity: .62; }
+.scatter-chart { width: 100%; height: 100%; overflow: visible; }
+.scatter-grid { stroke: rgba(245,238,225,.055); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.scatter-grid.major { stroke: rgba(245,238,225,.1); }
+.scatter-axis { fill: var(--dim); font: 10px Arial, sans-serif; }
+.scatter-point { stroke: #171513; stroke-width: 1.25; vector-effect: non-scaling-stroke; opacity: .9; transition: r 160ms ease, opacity 160ms ease; }
+.scatter-point:hover { opacity: 1; r: 5.5; }
 .chart-empty { color: var(--dim); font-size: 12px; }
 
 footer {
@@ -533,7 +558,7 @@ tbody tr:focus-visible {
   .hero-visual { min-height: 450px; }
   .floating-top { right: 8%; }
   .floating-bottom { left: 8%; }
-  .analysis-grid { grid-template-columns: 1fr; }
+  .analysis-grid { grid-template-columns: 1fr; grid-template-areas: "distribution" "mix" "trend"; }
   .distribution-panel, .mix-panel, .trend-panel { min-height: 430px; }
 }
 
@@ -556,6 +581,7 @@ tbody tr:focus-visible {
   .date-controls { width: 100%; }
   .date-picker { flex: 1; justify-content: center; }
   .analysis-date-controls { width: 100%; justify-content: stretch; }
+  .chart-tools { width: 100%; justify-items: start; }
   .analysis-date-controls label { flex: 1 1 145px; }
   .analysis-period { margin-top: -12px; text-align: left; }
   .table-toolbar { align-items: start; flex-direction: column; }

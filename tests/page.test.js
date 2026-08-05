@@ -64,11 +64,53 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05#analysis"/);
   assert.match(html, /id="bucketMix"/);
   assert.match(html, /class="donut-chart"/);
-  assert.match(html, /<circle class="donut-segment"[^>]*stroke="#899eb7"/);
+  assert.match(html, /name="chartMode"/);
+  assert.match(html, /value="shots"/);
+  assert.match(html, /<path class="pie-slice"[^>]*fill="#899eb7"/);
+  assert.match(html, /class="pie-slice-label"/);
   assert.ok(trendChart);
   assert.match(trendChart[1], /<svg /);
   assert.match(trendChart[1], /class="trend-line"/);
   assert.equal((trendChart[1].match(/class="trend-point"/g) || []).length, 3);
   assert.match(html, /<script nonce="test-nonce">/);
   assert.doesNotMatch(html, /src="\/assets\/app\.js/);
+});
+
+test("renderHomePage renders a fixed-axis shot timeline when selected", async () => {
+  const response = renderHomePage({
+    nonce: "test-nonce",
+    view: "shots",
+    shots: {
+      data: [],
+      total: 0,
+      selected_date: "2026-08-04",
+      bucket: "all",
+      day_summary: { total: 2, consistent: 1, consistency_percent: 50 },
+      window: { min_date: "2026-01-10", max_date: "2026-08-05" },
+    },
+    analysis: {
+      total: 2,
+      average_ms: 25_000,
+      consistency_percent: 50,
+      consistency_30d_percent: 50,
+      buckets: { under20: 0, "20to25": 0, "25to28": 2, "28to30": 0, over30: 0 },
+      daily: [{ date: "2026-08-04", count: 2, average_ms: 25_000, consistency_percent: 50 }],
+      shot_points: [
+        { created_at: Date.parse("2026-08-04T03:00:00Z"), shot_ms: 24_500 },
+        { created_at: Date.parse("2026-08-04T04:00:00Z"), shot_ms: 25_500 },
+      ],
+      range: { start_date: "2026-08-04", end_date: "2026-08-04" },
+      window: { min_date: "2026-01-10", max_date: "2026-08-05" },
+    },
+  });
+  const html = await response.text();
+  const scatterMarkup = html.match(/<div class="trend-chart" id="trendChart"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(scatterMarkup);
+  assert.match(html, /value="shots" checked/);
+  assert.match(html, /class="scatter-chart"/);
+  assert.match(html, />0s</);
+  assert.match(html, />40s</);
+  assert.match(html, />00:00</);
+  assert.match(html, />23:30</);
+  assert.equal((scatterMarkup[1].match(/class="scatter-point"/g) || []).length, 2);
 });

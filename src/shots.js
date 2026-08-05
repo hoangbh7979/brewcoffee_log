@@ -152,7 +152,7 @@ export async function getShotAnalysis(env, options = {}) {
   const range = resolveAnalysisRange(options, bounds);
   const recent = historyWindow(now);
 
-  const [summary, dailyResult, recentSummary] = await Promise.all([
+  const queries = [
     env.DB.prepare(
       `SELECT COUNT(*) AS total,
               AVG(shot_ms) AS average_ms,
@@ -179,16 +179,27 @@ export async function getShotAnalysis(env, options = {}) {
       `SELECT COUNT(*) AS total,
               COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
        FROM shots
-       WHERE created_at >= ? AND created_at < ?`
+      WHERE created_at >= ? AND created_at < ?`
     ).bind(recent.start, recent.end).first(),
-  ]);
+  ];
+  if (options.includePoints) {
+    queries.push(
+      env.DB.prepare(
+        `SELECT created_at, shot_ms
+         FROM shots
+         WHERE created_at >= ? AND created_at < ?
+         ORDER BY created_at ASC, id ASC`
+      ).bind(range.start, range.end).all()
+    );
+  }
+  const [summary, dailyResult, recentSummary, pointsResult] = await Promise.all(queries);
 
   const total = Number(summary && summary.total) || 0;
   const consistent = Number(summary && summary.consistent) || 0;
   const recentTotal = Number(recentSummary && recentSummary.total) || 0;
   const recentConsistent = Number(recentSummary && recentSummary.consistent) || 0;
 
-  return {
+  const result = {
     total,
     average_ms: Number(summary && summary.average_ms) || 0,
     consistent,
@@ -214,6 +225,13 @@ export async function getShotAnalysis(env, options = {}) {
     range: { start_date: range.startDate, end_date: range.endDate },
     window: { min_date: bounds.minDate, max_date: bounds.maxDate },
   };
+  if (options.includePoints) {
+    result.shot_points = (pointsResult.results || []).map((row) => ({
+      created_at: Number(row.created_at) || 0,
+      shot_ms: Number(row.shot_ms) || 0,
+    }));
+  }
+  return result;
 }
 
 async function getShotBounds(env, now) {
