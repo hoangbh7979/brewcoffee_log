@@ -26,8 +26,6 @@ function clientApp() {
   const elements = {
     table: document.getElementById("shotsTable"),
     date: document.getElementById("dateInput"),
-    previousDay: document.getElementById("previousDay"),
-    nextDay: document.getElementById("nextDay"),
     resultCount: document.getElementById("resultCount"),
     filterChips: document.getElementById("filterChips"),
     distribution: document.getElementById("distributionList"),
@@ -261,8 +259,6 @@ function clientApp() {
     elements.date.value = state.date;
     elements.date.min = state.window.min_date || "";
     elements.date.max = state.window.max_date || "";
-    elements.previousDay.disabled = Boolean(state.window.min_date && state.date <= state.window.min_date);
-    elements.nextDay.disabled = Boolean(state.window.max_date && state.date >= state.window.max_date);
   }
 
   function syncAnalysisControls() {
@@ -314,11 +310,12 @@ function clientApp() {
     elements.distribution.innerHTML = BUCKETS.map((bucket) => {
       const count = Number(analysis.buckets && analysis.buckets[bucket.key]) || 0;
       const width = total > 0 ? Math.max(count > 0 ? 3 : 0, count * 100 / total) : 0;
-      return '<button class="distribution-row" type="button" data-bucket="' + bucket.key + '">' +
+      const href = escapeHtml('/?date=' + encodeURIComponent(state.date) + '&bucket=' + encodeURIComponent(bucket.key) + '#shot-log');
+      return '<a class="distribution-row" data-bucket="' + bucket.key + '" href="' + href + '">' +
         '<span class="distribution-label">' + bucket.label + "</span>" +
         '<span class="bar-track"><i class="bar-fill" style="width:' + width.toFixed(1) + "%;background:" + bucket.color + '"></i></span>' +
         '<strong class="distribution-value">' + count + "</strong>" +
-        "</button>";
+        "</a>";
     }).join("");
     elements.analysisPeriod.textContent = analysisPeriodText(analysis);
     elements.chart.innerHTML = trendChartMarkup(analysis);
@@ -393,29 +390,6 @@ function clientApp() {
     document.getElementById("dialogAverage").textContent = formatShot(row.avg_ms);
     document.getElementById("dialogClass").textContent = bucket.name + " (" + bucket.label + ")";
     elements.dialog.showModal();
-  }
-
-  function setFilter(filter) {
-    state.filter = filter || "all";
-    elements.filterChips.querySelectorAll("[data-filter]").forEach((button) => {
-      button.classList.toggle("active", button.dataset.filter === state.filter);
-    });
-    loadShots();
-  }
-
-  function changeDate(date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-    state.date = date;
-    document.getElementById("metricSelectedDate").textContent = formatDateCompact(date);
-    document.getElementById("metricSelectedCount").textContent = "Loading…";
-    loadShots();
-  }
-
-  function shiftDate(days) {
-    if (!state.date) return;
-    const start = Date.parse(state.date + "T00:00:00+07:00");
-    const shifted = new Date(start + days * 24 * 60 * 60 * 1000 + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    changeDate(shifted);
   }
 
   function changeAnalysisRange(boundary, date) {
@@ -517,15 +491,6 @@ function clientApp() {
     loadShots({ silent: true });
     loadAnalysis({ silent: true });
   }
-  connectSocket();
-
-  elements.date.addEventListener("change", () => changeDate(elements.date.value));
-  elements.previousDay.addEventListener("click", () => shiftDate(-1));
-  elements.nextDay.addEventListener("click", () => shiftDate(1));
-  elements.filterChips.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-filter]");
-    if (button) setFilter(button.dataset.filter);
-  });
   elements.analysisStart.addEventListener("change", () => changeAnalysisRange("start_date", elements.analysisStart.value));
   elements.analysisEnd.addEventListener("change", () => changeAnalysisRange("end_date", elements.analysisEnd.value));
   elements.analysisAll.addEventListener("click", showAllAnalysis);
@@ -540,12 +505,6 @@ function clientApp() {
       event.preventDefault();
       openShot(Number(row.dataset.rowIndex));
     }
-  });
-  elements.distribution.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-bucket]");
-    if (!button) return;
-    setFilter(button.dataset.bucket);
-    document.getElementById("shot-log").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   elements.dialogClose.addEventListener("click", () => elements.dialog.close());
   elements.dialog.addEventListener("click", (event) => {
@@ -570,6 +529,7 @@ function clientApp() {
     connectSocket();
   });
   window.addEventListener("online", connectSocket);
+  connectSocket();
 
 }
 

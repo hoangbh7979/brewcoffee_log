@@ -312,6 +312,7 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 }
 .icon-button:hover:not(:disabled) { background: rgba(255,255,255,.08); transform: translateY(-1px); }
 .icon-button:disabled { opacity: .3; cursor: not-allowed; }
+.icon-button.disabled { opacity: .3; cursor: not-allowed; pointer-events: none; }
 .date-picker { padding: 0 15px; display: flex; align-items: center; gap: 10px; }
 .date-picker span { color: var(--accent); }
 .date-picker input { width: 126px; border: 0; outline: 0; color: var(--text); background: transparent; color-scheme: dark; }

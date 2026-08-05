@@ -92,20 +92,14 @@ export function renderHomePage(model = {}) {
           <h2>Your recent extractions</h2>
           <p>Select a date to view every extraction recorded on that day.</p>
         </div>
-        <div class="date-controls">
-          <button class="icon-button" id="previousDay" type="button" aria-label="Previous day">‹</button>
-          <label class="date-picker">
-            <span aria-hidden="true">◷</span>
-            <input id="dateInput" type="date" aria-label="Select shot date" value="${selectedDate}" min="${shots && shots.window ? shots.window.min_date : ""}" max="${shots && shots.window ? shots.window.max_date : ""}">
-          </label>
-          <button class="icon-button" id="nextDay" type="button" aria-label="Next day">›</button>
-        </div>
+        ${renderDateControls(selectedDate, shots && shots.window, selectedBucket)}
       </div>
+      <script nonce="${scriptNonce}">(()=>{const f=document.getElementById("dateForm"),i=document.getElementById("dateInput");if(f&&i)i.addEventListener("change",()=>f.requestSubmit?f.requestSubmit():f.submit());})();</script>
 
       <div class="panel table-panel reveal">
         <div class="table-toolbar">
           <div class="filter-chips" id="filterChips" aria-label="Filter by extraction time">
-            ${renderFilterButtons(selectedBucket)}
+            ${renderFilterButtons(selectedBucket, selectedDate)}
           </div>
           <span class="result-count" id="resultCount">${shotTotal} ${selectedBucket === "all" ? "shots" : "filtered shots"}</span>
         </div>
@@ -152,7 +146,7 @@ export function renderHomePage(model = {}) {
             <div><span>Shot distribution</span><strong id="distributionTotal">${analysisTotal} extractions</strong></div>
             <span class="panel-symbol">↗</span>
           </div>
-          <div class="distribution-list" id="distributionList">${renderDistribution(analysis)}</div>
+          <div class="distribution-list" id="distributionList">${renderDistribution(analysis, selectedDate)}</div>
           <p class="interaction-hint">Select a range to filter the currently selected day.</p>
         </div>
 
@@ -221,7 +215,35 @@ function renderShotRows(rows) {
   }).join("");
 }
 
-function renderFilterButtons(selected) {
+function renderDateControls(selectedDate, dateWindow, bucket) {
+  const window = dateWindow || { min_date: selectedDate, max_date: selectedDate };
+  const previous = shiftDateText(selectedDate, -1);
+  const next = shiftDateText(selectedDate, 1);
+  const previousDisabled = !previous || previous < window.min_date;
+  const nextDisabled = !next || next > window.max_date;
+  const dateHref = (date) => `/?${encodeURIComponent("date")}=${encodeURIComponent(date)}&${encodeURIComponent("bucket")}=${encodeURIComponent(bucket)}#shot-log`;
+  const link = (date, label, disabled) => disabled
+    ? `<span class="icon-button disabled" aria-disabled="true">${label}</span>`
+    : `<a class="icon-button" href="${escapeHtml(dateHref(date))}" aria-label="${label === "‹" ? "Previous day" : "Next day"}">${label}</a>`;
+  return `<form class="date-controls" id="dateForm" method="get" action="/">
+    ${link(previous, "‹", previousDisabled)}
+    <label class="date-picker">
+      <span aria-hidden="true">◷</span>
+      <input id="dateInput" name="date" type="date" aria-label="Select shot date" value="${escapeHtml(selectedDate)}" min="${escapeHtml(window.min_date || "")}" max="${escapeHtml(window.max_date || "")}" required>
+    </label>
+    <input type="hidden" name="bucket" value="${escapeHtml(bucket)}">
+    <button class="icon-button date-submit" type="submit" aria-label="Apply selected date">↵</button>
+    ${link(next, "›", nextDisabled)}
+  </form>`;
+}
+
+function shiftDateText(dateText, days) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateText || ""))) return "";
+  const [year, month, day] = dateText.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function renderFilterButtons(selected, selectedDate) {
   const filters = [
     ["all", "All"],
     ["under20", "&lt;20s"],
@@ -230,12 +252,13 @@ function renderFilterButtons(selected) {
     ["28to30", "28–30s"],
     ["over30", "&gt;30s"],
   ];
-  return filters.map(([key, label]) =>
-    `<button class="chip${key === selected ? " active" : ""}" type="button" data-filter="${key}">${label}</button>`
-  ).join("");
+  return filters.map(([key, label]) => {
+    const query = `/?date=${encodeURIComponent(selectedDate)}&bucket=${encodeURIComponent(key)}#shot-log`;
+    return `<a class="chip${key === selected ? " active" : ""}" data-filter="${key}" href="${escapeHtml(query)}">${label}</a>`;
+  }).join("");
 }
 
-function renderDistribution(analysis) {
+function renderDistribution(analysis, selectedDate) {
   const buckets = analysis && analysis.buckets ? analysis.buckets : {};
   const total = analysis ? Number(analysis.total) || 0 : 0;
   const definitions = [
@@ -248,11 +271,12 @@ function renderDistribution(analysis) {
   return definitions.map(([key, label, color]) => {
     const count = Number(buckets[key]) || 0;
     const width = total > 0 ? Math.max(count > 0 ? 3 : 0, count * 100 / total) : 0;
-    return `<button class="distribution-row" type="button" data-bucket="${key}">
+    const query = `/?date=${encodeURIComponent(selectedDate || "")}&bucket=${encodeURIComponent(key)}#shot-log`;
+    return `<a class="distribution-row" data-bucket="${key}" href="${escapeHtml(query)}">
       <span class="distribution-label">${label}</span>
       <span class="bar-track"><i class="bar-fill" style="width:${width.toFixed(1)}%;background:${color}"></i></span>
       <strong class="distribution-value">${count}</strong>
-    </button>`;
+    </a>`;
   }).join("");
 }
 

@@ -44,6 +44,13 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.ok(tableBody);
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 10);
   assert.match(html, /value="2026-08-05"/);
+  assert.match(html, /id="dateForm" method="get"/);
+  assert.match(html, /name="date"/);
+  assert.match(html, /href="\/\?date=2026-08-04&amp;bucket=all#shot-log"/);
+  assert.match(html, /class="icon-button disabled" aria-disabled="true">›/);
+  assert.match(html, /class="date-submit"/);
+  assert.match(html, /getElementById\("dateForm"\)/);
+  assert.doesNotMatch(html, /id="previousDay"|id="nextDay"/);
   assert.doesNotMatch(html, /id="pagination"|id="pageSummary"/);
   assert.match(html, /id="metricSelectedDate">05 Aug</);
   assert.match(html, /id="metricSelectedCount">75 shots</);
