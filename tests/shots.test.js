@@ -35,19 +35,39 @@ test("consistency uses the inclusive 24 to 27 second range result", () => {
   assert.equal(consistencyPercent(0, 0), 0);
 });
 
-test("analysis range defaults to the trailing three calendar months and can expand to all D1", () => {
-  const bounds = { minDate: "2026-01-10", maxDate: "2026-08-05" };
-  const recent = resolveAnalysisRange({}, bounds);
-  assert.equal(recent.startDate, "2026-05-05");
-  assert.equal(recent.endDate, "2026-08-05");
+test("analysis range defaults to the current day and can expand to all D1", () => {
+  const bounds = { minDate: "2026-01-10", maxDate: "2026-10-10" };
+  const today = resolveAnalysisRange({}, bounds);
+  assert.equal(today.startDate, "2026-10-10");
+  assert.equal(today.endDate, "2026-10-10");
 
   const all = resolveAnalysisRange({ allHistory: true }, bounds);
   assert.equal(all.startDate, "2026-01-10");
-  assert.equal(all.endDate, "2026-08-05");
+  assert.equal(all.endDate, "2026-10-10");
 
   const reversed = resolveAnalysisRange({ start: "2026-07-20", end: "2026-03-01" }, bounds);
   assert.equal(reversed.startDate, "2026-03-01");
   assert.equal(reversed.endDate, "2026-07-20");
+});
+
+test("analysis opens the current Bangkok day even when its latest D1 record is older", async () => {
+  const now = Date.parse("2026-10-10T03:00:00Z");
+  const env = mockEnv((sql) => {
+    if (sql.includes("MIN(created_at)")) {
+      return {
+        min_created_at: Date.parse("2026-01-09T17:00:00Z"),
+        max_created_at: Date.parse("2026-08-05T16:59:00Z"),
+      };
+    }
+    if (sql.includes("AVG(shot_ms)") && sql.includes("AS under20")) return {};
+    if (sql.includes("GROUP BY date")) return { results: [] };
+    if (sql.includes("COUNT(*) AS total")) return { total: 0, consistent: 0 };
+    throw new Error(`Unexpected query: ${sql}`);
+  });
+
+  const result = await getShotAnalysis(env, { now });
+  assert.deepEqual(result.range, { start_date: "2026-10-10", end_date: "2026-10-10" });
+  assert.deepEqual(result.window, { min_date: "2026-01-10", max_date: "2026-10-10" });
 });
 
 test("getShotsForDate returns every matching row without pagination", async () => {

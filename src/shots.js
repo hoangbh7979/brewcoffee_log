@@ -55,9 +55,7 @@ export function consistencyPercent(consistent, total) {
 
 export function resolveAnalysisRange(options, bounds) {
   const allHistory = Boolean(options && options.allHistory);
-  const defaultStart = allHistory
-    ? bounds.minDate
-    : maxDate(bounds.minDate, shiftDateByMonths(bounds.maxDate, -3));
+  const defaultStart = allHistory ? bounds.minDate : bounds.maxDate;
   let startDate = isDateWithinBounds(options && options.start, bounds)
     ? options.start
     : defaultStart;
@@ -77,20 +75,6 @@ export function resolveAnalysisRange(options, bounds) {
     start: startRange.start,
     end: endRange.end,
   };
-}
-
-function shiftDateByMonths(dateText, months) {
-  const [year, month, day] = String(dateText || "").split("-").map(Number);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return dateText;
-  const pivot = new Date(Date.UTC(year, month - 1 + months, 1));
-  const targetYear = pivot.getUTCFullYear();
-  const targetMonth = pivot.getUTCMonth() + 1;
-  const lastDay = new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate();
-  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
-}
-
-function maxDate(left, right) {
-  return left > right ? left : right;
 }
 
 export async function listShots(env, limit) {
@@ -166,7 +150,8 @@ function bucketSql(bucket) {
 export async function getShotAnalysis(env, options = {}) {
   if (typeof options === "number") options = { now: options };
   const now = Number.isFinite(options.now) ? options.now : Date.now();
-  const bounds = await getShotBounds(env, now);
+  const dataBounds = await getShotBounds(env, now);
+  const bounds = { ...dataBounds, maxDate: bangkokDate(now) };
   const range = resolveAnalysisRange(options, bounds);
   const recent = historyWindow(now);
 
