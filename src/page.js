@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "analysis2";
+const ASSET_VERSION = "analysis3";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -160,11 +160,7 @@ export function renderHomePage(model = {}) {
           <div class="panel-title">
             <div><span>Daily rhythm</span><strong>Average extraction time</strong></div>
             <div class="chart-tools">
-              <fieldset class="chart-mode" aria-label="Chart view">
-                <legend>View</legend>
-                <label><input type="radio" name="chartMode" value="daily"${chartMode === "daily" ? " checked" : ""}> <span>By day</span></label>
-                <label><input type="radio" name="chartMode" value="shots"${chartMode === "shots" ? " checked" : ""}> <span>By shot</span></label>
-              </fieldset>
+              ${renderChartModeControls(chartMode, selectedDate, selectedBucket, analysisRange)}
               <span class="target-legend"><i></i> 25s target</span>
             </div>
           </div>
@@ -270,6 +266,21 @@ function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMo
   </form>`;
 }
 
+function renderChartModeControls(chartMode, selectedDate, bucket, range) {
+  const safeRange = range || { start_date: "", end_date: "" };
+  const hrefFor = (view) => {
+    const params = new URLSearchParams();
+    if (selectedDate) params.set("date", selectedDate);
+    if (bucket && bucket !== "all") params.set("bucket", bucket);
+    if (safeRange.start_date) params.set("analysis_start", safeRange.start_date);
+    if (safeRange.end_date) params.set("analysis_end", safeRange.end_date);
+    if (view === "shots") params.set("view", "shots");
+    return `/${params.toString() ? `?${params.toString()}` : ""}#analysis`;
+  };
+  const option = (view, label) => `<a class="chart-mode-link${chartMode === view ? " active" : ""}" href="${escapeHtml(hrefFor(view))}"${chartMode === view ? ' aria-current="page"' : ""}><i aria-hidden="true"></i><span>${label}</span></a>`;
+  return `<div class="chart-mode" aria-label="Chart view">${option("daily", "By day")}${option("shots", "By shot")}</div>`;
+}
+
 function shiftDateText(dateText, days) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateText || ""))) return "";
   const [year, month, day] = dateText.split("-").map(Number);
@@ -318,8 +329,8 @@ function renderBucketMix(analysis) {
   const total = analysis ? Number(analysis.total) || 0 : 0;
   const cx = 132;
   const cy = 122;
-  const outerRadius = 96;
-  const innerRadius = 57;
+  const outerRadius = 104;
+  const innerRadius = 54;
   let angle = -90;
   const segments = [
     ["under20", "<20s", "#899eb7"],
@@ -327,31 +338,24 @@ function renderBucketMix(analysis) {
     ["25to28", "25–28s", "#92b79c"],
     ["28to30", "28–30s", "#c99b64"],
     ["over30", ">30s", "#d08c7d"],
-  ].map(([key, label, color]) => {
+  ].map(([key, label, color], index) => {
     const count = Number(buckets[key]) || 0;
     const span = total > 0 ? count / total * 360 : 0;
     const start = angle;
     const end = angle + Math.min(span, 359.99);
     angle = end;
-    return { key, label, color, count, start, end, span };
+    return { index, key, label, color, count, start, end, span };
   });
-  const slices = segments.map(({ label, color, count, start, end, span }) => {
+  const slices = segments.map(({ index, label, color, count, start, end, span }) => {
     if (span <= 0) return "";
-    return `<path class="pie-slice" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start, end)}" fill="${color}"><title>${escapeHtml(label)} · ${count} shots</title></path>`;
+    return `<path class="pie-slice" style="--slice-delay:${index * 70}ms" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start, end)}" fill="${color}"><title>${escapeHtml(label)} · ${count} shots</title></path>`;
   }).join("");
   const labels = segments.map(({ label, count, start, span }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
     if (span <= 0) return "";
     const mid = start + span / 2;
-    if (percent >= 7) {
-      const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
-      return `<text class="pie-slice-label" x="${point.x.toFixed(2)}" y="${(point.y + 3).toFixed(2)}" text-anchor="middle">${percent}%</text>`;
-    }
-    const lineStart = polarPoint(cx, cy, outerRadius + 2, mid);
-    const lineEnd = polarPoint(cx, cy, outerRadius + 21, mid);
-    const right = lineEnd.x >= cx;
-    const textX = lineEnd.x + (right ? 5 : -5);
-    return `<path class="pie-callout-line" d="M${lineStart.x.toFixed(2)} ${lineStart.y.toFixed(2)} L${lineEnd.x.toFixed(2)} ${lineEnd.y.toFixed(2)}"></path><text class="pie-callout-label" x="${textX.toFixed(2)}" y="${(lineEnd.y + 3).toFixed(2)}" text-anchor="${right ? "start" : "end"}">${escapeHtml(label)} ${percent}%</text>`;
+    const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
+    return `<text class="pie-slice-label${percent < 8 ? " compact" : ""}" x="${point.x.toFixed(2)}" y="${(point.y + 3).toFixed(2)}" text-anchor="middle">${percent}%</text>`;
   }).join("");
   const legend = segments.map(({ label, color, count }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;

@@ -64,8 +64,8 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05#analysis"/);
   assert.match(html, /id="bucketMix"/);
   assert.match(html, /class="donut-chart"/);
-  assert.match(html, /name="chartMode"/);
-  assert.match(html, /value="shots"/);
+  assert.match(html, /class="chart-mode-link active"/);
+  assert.match(html, /view=shots/);
   assert.match(html, /<path class="pie-slice"[^>]*fill="#899eb7"/);
   assert.match(html, /class="pie-slice-label"/);
   assert.ok(trendChart);
@@ -106,7 +106,7 @@ test("renderHomePage renders a fixed-axis shot timeline when selected", async ()
   const html = await response.text();
   const scatterMarkup = html.match(/<div class="trend-chart" id="trendChart"[^>]*>([\s\S]*?)<\/div>/);
   assert.ok(scatterMarkup);
-  assert.match(html, /value="shots" checked/);
+  assert.match(html, /class="chart-mode-link active"[^>]*view=shots/);
   assert.match(html, /class="scatter-chart"/);
   assert.match(html, />0s</);
   assert.match(html, />40s</);

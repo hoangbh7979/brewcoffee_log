@@ -434,32 +434,32 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .bar-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width 700ms cubic-bezier(.2,.8,.2,1); }
 .distribution-value { text-align: right; font: 400 18px/1 Georgia, serif; }
 .interaction-hint { margin: 27px 0 0; color: var(--dim); font-size: 11px; }
-.bucket-mix { display: grid; gap: 18px; }
-.donut-shell { display: grid; place-items: center; min-height: 230px; }
-.donut-chart { width: min(100%, 330px); height: auto; overflow: visible; }
-.donut-track,
+.bucket-mix { display: grid; grid-template-columns: minmax(220px, .95fr) minmax(145px, .65fr); align-items: center; gap: 20px; }
+.donut-shell { min-height: 270px; display: grid; place-items: center; padding: 6px; }
+.donut-chart { width: min(100%, 310px); height: auto; overflow: visible; filter: drop-shadow(0 14px 26px rgba(0,0,0,.24)); }
 .donut-track { fill: rgba(255,255,255,.035); stroke: rgba(255,255,255,.06); stroke-width: 1; }
 .donut-hole { fill: #171513; stroke: rgba(255,255,255,.06); stroke-width: 1; }
-.pie-slice { stroke: #171513; stroke-width: 1.5; stroke-linejoin: round; transition: opacity 180ms ease, transform 180ms ease; transform-origin: 132px 122px; }
-.pie-slice:hover { opacity: .82; }
-.pie-slice-label { fill: #171513; font: 700 13px/1 Arial, sans-serif; pointer-events: none; }
-.pie-callout-line { fill: none; stroke: var(--dim); stroke-width: 1; }
-.pie-callout-label { fill: var(--muted); font: 10px Arial, sans-serif; }
+.pie-slice { stroke: #171513; stroke-width: 2; stroke-linejoin: round; opacity: 0; transform-box: fill-box; transform-origin: center; animation: pie-enter 620ms cubic-bezier(.2,.86,.22,1) forwards; animation-delay: var(--slice-delay, 0ms); transition: filter 180ms ease, transform 180ms ease; }
+.pie-slice:hover { filter: brightness(1.12) saturate(1.1); transform: scale(1.035); }
+.pie-slice-label { fill: #171513; stroke: rgba(255,255,255,.2); stroke-width: .35; paint-order: stroke; font: 700 13px/1 Arial, sans-serif; pointer-events: none; opacity: .9; }
+.pie-slice-label.compact { font-size: 9px; }
 .donut-total { fill: var(--text); font: 400 30px/1 Georgia, serif; }
 .donut-caption { fill: var(--dim); font: 10px Arial, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
-.donut-legend { display: grid; gap: 9px; }
-.donut-legend-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
+.donut-legend { display: grid; gap: 6px; padding: 8px; border: 1px solid rgba(255,255,255,.045); border-radius: 16px; background: rgba(255,255,255,.018); }
+.donut-legend-row { padding: 7px 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 10px; color: var(--muted); font-size: 11px; transition: background 160ms ease; }
+.donut-legend-row:hover { background: rgba(255,255,255,.045); }
 .donut-legend-row span { display: inline-flex; align-items: center; gap: 8px; }
-.donut-legend-row i { width: 8px; height: 8px; display: inline-block; border-radius: 50%; }
+.donut-legend-row i { width: 8px; height: 8px; display: inline-block; border-radius: 50%; box-shadow: 0 0 0 3px rgba(255,255,255,.035); }
 .donut-legend-row strong { color: var(--text); font: 400 14px/1 Georgia, serif; }
 .target-legend { display: inline-flex; align-items: center; gap: 7px; }
 .target-legend i { display: inline-block; width: 16px; border-top: 1px dashed var(--accent); }
 .chart-tools { display: grid; justify-items: end; gap: 10px; }
-.chart-mode { margin: 0; padding: 0; display: inline-flex; align-items: center; gap: 9px; border: 0; color: var(--dim); font-size: 10px; }
-.chart-mode legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.chart-mode label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
-.chart-mode input { margin: 0; accent-color: var(--accent); }
-.chart-mode label:has(input:checked) { color: var(--text); }
+.chart-mode { padding: 4px; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.025); }
+.chart-mode-link { min-height: 30px; padding: 0 11px; display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; color: var(--dim); font-size: 10px; white-space: nowrap; transition: color 180ms ease, background 180ms ease, box-shadow 180ms ease; }
+.chart-mode-link i { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; opacity: .75; transition: background 180ms ease, transform 180ms ease; }
+.chart-mode-link:hover { color: var(--text); background: rgba(255,255,255,.05); }
+.chart-mode-link.active { color: var(--ink); background: var(--cream); box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+.chart-mode-link.active i { background: var(--ink); border-color: var(--ink); transform: scale(.75); }
 .trend-single-value { fill: var(--text); font: 400 16px/1 Georgia, serif; }
 .chart-shell { height: 350px; position: relative; }
 .trend-chart { width: 100%; height: 100%; display: grid; place-items: center; }
@@ -479,6 +479,11 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .scatter-point { stroke: #171513; stroke-width: 1.25; vector-effect: non-scaling-stroke; opacity: .9; transition: r 160ms ease, opacity 160ms ease; }
 .scatter-point:hover { opacity: 1; r: 5.5; }
 .chart-empty { color: var(--dim); font-size: 12px; }
+
+@keyframes pie-enter {
+  from { opacity: 0; transform: scale(.84) rotate(-7deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
 
 footer {
   width: min(var(--max), calc(100vw - 48px));
@@ -582,6 +587,8 @@ tbody tr:focus-visible {
   .date-picker { flex: 1; justify-content: center; }
   .analysis-date-controls { width: 100%; justify-content: stretch; }
   .chart-tools { width: 100%; justify-items: start; }
+  .bucket-mix { grid-template-columns: 1fr; }
+  .donut-shell { min-height: 245px; }
   .analysis-date-controls label { flex: 1 1 145px; }
   .analysis-period { margin-top: -12px; text-align: left; }
   .table-toolbar { align-items: start; flex-direction: column; }

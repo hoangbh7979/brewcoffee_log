@@ -36,7 +36,6 @@ function clientApp() {
     analysisStart: document.getElementById("analysisStart"),
     analysisEnd: document.getElementById("analysisEnd"),
     analysisAll: document.getElementById("analysisAll"),
-    chartModes: Array.from(document.querySelectorAll('input[name="chartMode"]')),
     analysisPeriod: document.getElementById("analysisPeriod"),
     livePill: document.getElementById("livePill"),
     liveStatus: document.getElementById("liveStatus"),
@@ -160,7 +159,6 @@ function clientApp() {
       state.analysisAllHistory = isAllHistory();
       syncDateControls();
       syncAnalysisControls();
-      syncChartMode();
       renderShots();
       updateSelectedMetrics();
       renderAnalysis();
@@ -276,12 +274,6 @@ function clientApp() {
     elements.analysisAll.classList.toggle("active", state.analysisAllHistory);
   }
 
-  function syncChartMode() {
-    elements.chartModes.forEach((input) => {
-      input.checked = input.value === state.chartMode;
-    });
-  }
-
   function isAllHistory() {
     return Boolean(
       state.analysisRange.start_date
@@ -297,21 +289,6 @@ function clientApp() {
     else url.searchParams.set("bucket", state.filter);
     url.searchParams.delete("page");
     history.replaceState(null, "", url.pathname + "?" + url.searchParams.toString() + url.hash);
-  }
-
-  function changeChartMode(mode) {
-    state.chartMode = mode === "shots" ? "shots" : "daily";
-    syncChartMode();
-    const url = new URL(location.href);
-    if (state.chartMode === "shots") url.searchParams.set("view", "shots");
-    else url.searchParams.delete("view");
-    history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "") + url.hash);
-    if (state.chartMode === "shots" && !Array.isArray(state.analysis.shot_points)) {
-      elements.chart.innerHTML = '<p class="chart-empty">Loading shot timeline…</p>';
-      loadAnalysis({ includePoints: true });
-      return;
-    }
-    renderAnalysis();
   }
 
   function updateSelectedMetrics() {
@@ -362,35 +339,28 @@ function clientApp() {
     const total = analysis ? Number(analysis.total) || 0 : 0;
     const cx = 132;
     const cy = 122;
-    const outerRadius = 96;
-    const innerRadius = 57;
+    const outerRadius = 104;
+    const innerRadius = 54;
     let angle = -90;
-    const segments = BUCKETS.map((bucket) => {
+    const segments = BUCKETS.map((bucket, index) => {
       const count = Number(buckets[bucket.key]) || 0;
       const span = total > 0 ? count / total * 360 : 0;
       const start = angle;
       const end = angle + Math.min(span, 359.99);
       angle = end;
-      return { bucket, count, start, end, span };
+      return { index, bucket, count, start, end, span };
     });
-    const slices = segments.map(({ bucket, count, start, end, span }) => {
+    const slices = segments.map(({ index, bucket, count, start, end, span }) => {
       if (span <= 0) return "";
       const path = pieSlicePath(cx, cy, outerRadius, innerRadius, start, end);
-      return '<path class="pie-slice" d="' + path + '" fill="' + bucket.color + '"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots</title></path>';
+      return '<path class="pie-slice" style="--slice-delay:' + (index * 70) + 'ms" d="' + path + '" fill="' + bucket.color + '"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots</title></path>';
     }).join("");
-    const labels = segments.map(({ bucket, count, start, end, span }) => {
+    const labels = segments.map(({ bucket, count, start, span }) => {
       const percent = total > 0 ? Math.round(count * 100 / total) : 0;
       if (span <= 0) return "";
       const mid = start + span / 2;
-      if (percent >= 7) {
-        const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
-        return '<text class="pie-slice-label" x="' + point.x.toFixed(2) + '" y="' + (point.y + 3).toFixed(2) + '" text-anchor="middle">' + percent + '%</text>';
-      }
-      const lineStart = polarPoint(cx, cy, outerRadius + 2, mid);
-      const lineEnd = polarPoint(cx, cy, outerRadius + 21, mid);
-      const right = lineEnd.x >= cx;
-      const textX = lineEnd.x + (right ? 5 : -5);
-      return '<path class="pie-callout-line" d="M' + lineStart.x.toFixed(2) + ' ' + lineStart.y.toFixed(2) + ' L' + lineEnd.x.toFixed(2) + ' ' + lineEnd.y.toFixed(2) + '"></path><text class="pie-callout-label" x="' + textX.toFixed(2) + '" y="' + (lineEnd.y + 3).toFixed(2) + '" text-anchor="' + (right ? "start" : "end") + '">' + escapeHtml(bucket.label) + ' ' + percent + '%</text>';
+      const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
+      return '<text class="pie-slice-label' + (percent < 8 ? ' compact' : '') + '" x="' + point.x.toFixed(2) + '" y="' + (point.y + 3).toFixed(2) + '" text-anchor="middle">' + percent + '%</text>';
     }).join("");
     const legend = segments.map(({ bucket, count }) => {
       const percent = total > 0 ? Math.round(count * 100 / total) : 0;
@@ -651,7 +621,6 @@ function clientApp() {
   elements.dialog.addEventListener("click", (event) => {
     if (event.target === elements.dialog) elements.dialog.close();
   });
-  elements.chartModes.forEach((input) => input.addEventListener("change", () => changeChartMode(input.value)));
 
   const sections = Array.from(document.querySelectorAll(".section-anchor"));
   const navLinks = Array.from(document.querySelectorAll("[data-nav]"));
