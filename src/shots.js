@@ -1,8 +1,6 @@
 import {
   BANGKOK_UTC_OFFSET,
-  DEFAULT_PAGE_SIZE,
   HISTORY_DAYS,
-  MAX_PAGE_SIZE,
 } from "./config.js";
 import { clampInt } from "./format.js";
 
@@ -40,6 +38,43 @@ export function isDateWithinHistory(dateText, now = Date.now()) {
   return range.start >= window.start && range.start < window.end;
 }
 
+export function isDateWithinBounds(dateText, bounds) {
+  return Boolean(
+    dateRangeForBangkokDay(dateText)
+    && bounds
+    && dateText >= bounds.minDate
+    && dateText <= bounds.maxDate
+  );
+}
+
+export function consistencyPercent(consistent, total) {
+  const safeTotal = Number(total) || 0;
+  const safeConsistent = Number(consistent) || 0;
+  return safeTotal > 0 ? Math.round(safeConsistent * 100 / safeTotal) : 0;
+}
+
+export function resolveAnalysisRange(options, bounds) {
+  let startDate = isDateWithinBounds(options && options.start, bounds)
+    ? options.start
+    : bounds.minDate;
+  let endDate = isDateWithinBounds(options && options.end, bounds)
+    ? options.end
+    : bounds.maxDate;
+
+  if (startDate > endDate) {
+    [startDate, endDate] = [endDate, startDate];
+  }
+
+  const startRange = dateRangeForBangkokDay(startDate);
+  const endRange = dateRangeForBangkokDay(endDate);
+  return {
+    startDate,
+    endDate,
+    start: startRange.start,
+    end: endRange.end,
+  };
+}
+
 export async function listShots(env, limit) {
   const safeLimit = clampInt(limit, 1, 500, 500);
   const { results } = await env.DB.prepare(
@@ -51,66 +86,45 @@ export async function listShots(env, limit) {
   return results || [];
 }
 
-export async function getShotsPage(env, options = {}) {
+export async function getShotsForDate(env, options = {}) {
   const now = Number.isFinite(options.now) ? options.now : Date.now();
-  const window = historyWindow(now);
-  const pageSize = clampInt(options.pageSize, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+  const bounds = await getShotBounds(env, now);
   const bucket = normalizeBucket(options.bucket);
   const bucketCondition = bucketSql(bucket);
-  let selectedDate = isDateWithinHistory(options.date, now) ? options.date : "";
-
-  if (!selectedDate) {
-    const latest = await env.DB.prepare(
-      `SELECT date(created_at / 1000, 'unixepoch', '+7 hours') AS shot_date
-       FROM shots
-       WHERE created_at >= ? AND created_at < ?
-       ORDER BY created_at DESC
-       LIMIT 1`
-    ).bind(window.start, window.end).first();
-    selectedDate = latest && latest.shot_date ? latest.shot_date : window.maxDate;
-  }
-
+  const selectedDate = isDateWithinBounds(options.date, bounds)
+    ? options.date
+    : bounds.maxDate;
   const selectedRange = dateRangeForBangkokDay(selectedDate);
-  const countResult = await env.DB.prepare(
-    `SELECT COUNT(*) AS total
-     FROM shots
-     WHERE created_at >= ? AND created_at < ?${bucketCondition}`
-  ).bind(selectedRange.start, selectedRange.end).first();
-  const total = Number(countResult && countResult.total) || 0;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = clampInt(options.page, 1, totalPages, 1);
-  const offset = (page - 1) * pageSize;
 
-  const [rowsResult, datesResult] = await Promise.all([
+  const [daySummary, rowsResult] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS total,
+              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
+       FROM shots
+       WHERE created_at >= ? AND created_at < ?`
+    ).bind(selectedRange.start, selectedRange.end).first(),
     env.DB.prepare(
       `SELECT ${SHOT_COLUMNS}
        FROM shots
        WHERE created_at >= ? AND created_at < ?${bucketCondition}
-       ORDER BY created_at DESC, brew_counter DESC, id DESC
-       LIMIT ? OFFSET ?`
-    ).bind(selectedRange.start, selectedRange.end, pageSize, offset).all(),
-    env.DB.prepare(
-      `SELECT date(created_at / 1000, 'unixepoch', '+7 hours') AS date,
-              COUNT(*) AS count
-       FROM shots
-       WHERE created_at >= ? AND created_at < ?
-       GROUP BY date
-       ORDER BY date DESC`
-    ).bind(window.start, window.end).all(),
+       ORDER BY created_at DESC, brew_counter DESC, id DESC`
+    ).bind(selectedRange.start, selectedRange.end).all(),
   ]);
 
+  const rows = rowsResult.results || [];
+  const dayTotal = Number(daySummary && daySummary.total) || 0;
+  const consistent = Number(daySummary && daySummary.consistent) || 0;
   return {
-    data: rowsResult.results || [],
+    data: rows,
+    total: rows.length,
     selected_date: selectedDate,
     bucket,
-    available_dates: datesResult.results || [],
-    pagination: {
-      page,
-      page_size: pageSize,
-      total,
-      total_pages: totalPages,
+    day_summary: {
+      total: dayTotal,
+      consistent,
+      consistency_percent: consistencyPercent(consistent, dayTotal),
     },
-    window: { min_date: window.minDate, max_date: window.maxDate },
+    window: { min_date: bounds.minDate, max_date: bounds.maxDate },
   };
 }
 
@@ -131,9 +145,14 @@ function bucketSql(bucket) {
   }
 }
 
-export async function getShotAnalysis(env, now = Date.now()) {
-  const window = historyWindow(now);
-  const [summary, dailyResult] = await Promise.all([
+export async function getShotAnalysis(env, options = {}) {
+  if (typeof options === "number") options = { now: options };
+  const now = Number.isFinite(options.now) ? options.now : Date.now();
+  const bounds = await getShotBounds(env, now);
+  const range = resolveAnalysisRange(options, bounds);
+  const recent = historyWindow(now);
+
+  const [summary, dailyResult, recentSummary] = await Promise.all([
     env.DB.prepare(
       `SELECT COUNT(*) AS total,
               AVG(shot_ms) AS average_ms,
@@ -141,24 +160,40 @@ export async function getShotAnalysis(env, now = Date.now()) {
               COUNT(CASE WHEN shot_ms >= 20000 AND shot_ms < 25000 THEN 1 END) AS "20to25",
               COUNT(CASE WHEN shot_ms >= 25000 AND shot_ms < 28000 THEN 1 END) AS "25to28",
               COUNT(CASE WHEN shot_ms >= 28000 AND shot_ms <= 30000 THEN 1 END) AS "28to30",
-              COUNT(CASE WHEN shot_ms > 30000 THEN 1 END) AS over30
+              COUNT(CASE WHEN shot_ms > 30000 THEN 1 END) AS over30,
+              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
        FROM shots
        WHERE created_at >= ? AND created_at < ?`
-    ).bind(window.start, window.end).first(),
+    ).bind(range.start, range.end).first(),
     env.DB.prepare(
       `SELECT date(created_at / 1000, 'unixepoch', '+7 hours') AS date,
               COUNT(*) AS count,
-              AVG(shot_ms) AS average_ms
+              AVG(shot_ms) AS average_ms,
+              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
        FROM shots
        WHERE created_at >= ? AND created_at < ?
        GROUP BY date
        ORDER BY date ASC`
-    ).bind(window.start, window.end).all(),
+    ).bind(range.start, range.end).all(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS total,
+              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
+       FROM shots
+       WHERE created_at >= ? AND created_at < ?`
+    ).bind(recent.start, recent.end).first(),
   ]);
 
+  const total = Number(summary && summary.total) || 0;
+  const consistent = Number(summary && summary.consistent) || 0;
+  const recentTotal = Number(recentSummary && recentSummary.total) || 0;
+  const recentConsistent = Number(recentSummary && recentSummary.consistent) || 0;
+
   return {
-    total: Number(summary && summary.total) || 0,
+    total,
     average_ms: Number(summary && summary.average_ms) || 0,
+    consistent,
+    consistency_percent: consistencyPercent(consistent, total),
+    consistency_30d_percent: consistencyPercent(recentConsistent, recentTotal),
     buckets: {
       under20: Number(summary && summary.under20) || 0,
       "20to25": Number(summary && summary["20to25"]) || 0,
@@ -166,11 +201,38 @@ export async function getShotAnalysis(env, now = Date.now()) {
       "28to30": Number(summary && summary["28to30"]) || 0,
       over30: Number(summary && summary.over30) || 0,
     },
-    daily: (dailyResult.results || []).map((row) => ({
-      date: row.date,
-      count: Number(row.count) || 0,
-      average_ms: Number(row.average_ms) || 0,
-    })),
-    window: { min_date: window.minDate, max_date: window.maxDate },
+    daily: (dailyResult.results || []).map((row) => {
+      const dayTotal = Number(row.count) || 0;
+      const dayConsistent = Number(row.consistent) || 0;
+      return {
+        date: row.date,
+        count: dayTotal,
+        average_ms: Number(row.average_ms) || 0,
+        consistency_percent: consistencyPercent(dayConsistent, dayTotal),
+      };
+    }),
+    range: { start_date: range.startDate, end_date: range.endDate },
+    window: { min_date: bounds.minDate, max_date: bounds.maxDate },
   };
+}
+
+async function getShotBounds(env, now) {
+  const result = await env.DB.prepare(
+    `SELECT MIN(created_at) AS min_created_at,
+            MAX(created_at) AS max_created_at
+     FROM shots`
+  ).first();
+  const minCreatedAt = numericTimestamp(result && result.min_created_at);
+  const maxCreatedAt = numericTimestamp(result && result.max_created_at);
+  const fallback = bangkokDate(now);
+  return {
+    minDate: minCreatedAt === null ? fallback : bangkokDate(minCreatedAt),
+    maxDate: maxCreatedAt === null ? fallback : bangkokDate(maxCreatedAt),
+  };
+}
+
+function numericTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }

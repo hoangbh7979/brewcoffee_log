@@ -6,7 +6,7 @@ import { isAllowedOrigin } from "./origin.js";
 import { CLIENT_SCRIPT } from "./page-client.js";
 import { PAGE_STYLES } from "./page-styles.js";
 import { renderHomePage } from "./page.js";
-import { getShotAnalysis, getShotsPage, listShots } from "./shots.js";
+import { getShotAnalysis, getShotsForDate, listShots } from "./shots.js";
 import { handleWsIngest } from "./ws-ingest.js";
 
 export { ShotHub } from "./shot-hub.js";
@@ -58,13 +58,14 @@ async function routeRequest(request, env) {
     if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
     if (!env.DB) return new Response("DB not bound", { status: 500 });
     const [shots, analysis] = await Promise.all([
-      getShotsPage(env, {
+      getShotsForDate(env, {
         date: url.searchParams.get("date") || "",
-        page: url.searchParams.get("page"),
-        pageSize: 10,
         bucket: url.searchParams.get("bucket") || "all",
       }),
-      getShotAnalysis(env),
+      getShotAnalysis(env, {
+        start: url.searchParams.get("analysis_start") || "",
+        end: url.searchParams.get("analysis_end") || "",
+      }),
     ]);
     const nonce = crypto.randomUUID();
     return withSecurityHeaders(renderHomePage({ shots, analysis, nonce }), nonce);
@@ -103,10 +104,8 @@ async function routeRequest(request, env) {
       return json({ ok: true, data: results }, origin, ALLOWED_ORIGIN);
     }
 
-    const result = await getShotsPage(env, {
+    const result = await getShotsForDate(env, {
       date: url.searchParams.get("date") || "",
-      page: url.searchParams.get("page"),
-      pageSize: url.searchParams.get("page_size"),
       bucket: url.searchParams.get("bucket") || "all",
     });
     return json({ ok: true, ...result }, origin, ALLOWED_ORIGIN);
@@ -115,7 +114,10 @@ async function routeRequest(request, env) {
   if (url.pathname === "/api/analysis") {
     if (request.method !== "GET") return methodNotAllowed(["GET"]);
     if (!env.DB) return json({ ok: false, error: "db_not_bound" }, origin, ALLOWED_ORIGIN, 500);
-    const result = await getShotAnalysis(env);
+    const result = await getShotAnalysis(env, {
+      start: url.searchParams.get("start") || "",
+      end: url.searchParams.get("end") || "",
+    });
     return json({ ok: true, data: result }, origin, ALLOWED_ORIGIN);
   }
 

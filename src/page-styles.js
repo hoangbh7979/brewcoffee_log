@@ -314,6 +314,24 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 .date-picker { padding: 0 15px; display: flex; align-items: center; gap: 10px; }
 .date-picker span { color: var(--accent); }
 .date-picker input { width: 126px; border: 0; outline: 0; color: var(--text); background: transparent; color-scheme: dark; }
+.analysis-date-controls { display: flex; align-items: end; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.analysis-date-controls label {
+  min-width: 150px;
+  height: 58px;
+  padding: 8px 14px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.025);
+}
+.analysis-date-controls label span { color: var(--dim); font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.analysis-date-controls input { border: 0; outline: 0; color: var(--text); background: transparent; color-scheme: dark; }
+.analysis-date-controls .icon-button { width: 58px; height: 58px; border-radius: 14px; }
+.analysis-date-controls .icon-button.active { color: var(--ink); background: var(--cream); }
+.range-arrow { align-self: center; color: var(--dim); }
+.analysis-period { margin: -18px 0 24px; color: var(--dim); font-size: 11px; text-align: right; }
 
 .panel {
   border: 1px solid var(--line);
@@ -379,36 +397,6 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .empty-state { height: 190px; text-align: center; color: var(--muted); cursor: default; }
 .loading-row { cursor: default; }
 .loading-line { display: block; height: 10px; border-radius: 999px; background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.1), rgba(255,255,255,.04)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-.pagination-shell {
-  min-height: 72px;
-  padding: 14px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  border-top: 1px solid var(--line);
-}
-.pagination-shell p { margin: 0; color: var(--dim); font-size: 12px; }
-.pagination { display: flex; gap: 5px; align-items: center; }
-.page-button {
-  min-width: 36px;
-  height: 36px;
-  padding: 0 9px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 12px;
-  display: inline-grid;
-  place-items: center;
-}
-.page-button:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.055); }
-.page-button.active { color: var(--ink); background: var(--cream); }
-.page-button:disabled { opacity: .25; cursor: default; }
-.page-button.disabled { opacity: .25; cursor: default; pointer-events: none; }
-.page-ellipsis { color: var(--dim); padding: 0 4px; }
-
 .analysis-grid { display: grid; grid-template-columns: .86fr 1.14fr; gap: 18px; }
 .distribution-panel,
 .trend-panel { padding: 28px; min-height: 470px; }
@@ -438,22 +426,17 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .target-legend { display: inline-flex; align-items: center; gap: 7px; }
 .target-legend i { display: inline-block; width: 16px; border-top: 1px dashed var(--accent); }
 .chart-shell { height: 350px; position: relative; }
-#trendChart { width: 100%; height: 100%; display: block; }
-.chart-tooltip {
-  position: absolute;
-  z-index: 3;
-  min-width: 122px;
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 11px;
-  background: rgba(10,9,8,.92);
-  box-shadow: 0 14px 34px rgba(0,0,0,.35);
-  color: var(--muted);
-  font-size: 11px;
-  pointer-events: none;
-  transform: translate(-50%, calc(-100% - 12px));
-}
-.chart-tooltip strong { display: block; margin-top: 3px; color: var(--text); font: 400 17px/1.2 Georgia, serif; }
+.trend-chart { width: 100%; height: 100%; display: grid; place-items: center; }
+.trend-chart svg { width: 100%; height: 100%; overflow: visible; }
+.trend-grid { stroke: rgba(245,238,225,.09); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.trend-axis { fill: var(--dim); font: 10px Arial, sans-serif; }
+.consistency-band { fill: rgba(146,183,156,.07); }
+.target-line { stroke: rgba(201,155,100,.72); stroke-width: 1; stroke-dasharray: 5 6; vector-effect: non-scaling-stroke; }
+.trend-area { fill: url(#trendGradient); }
+.trend-line { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.trend-point { fill: var(--cream); stroke: #171513; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: help; transition: opacity 160ms ease; }
+.trend-point:hover { opacity: .62; }
+.chart-empty { color: var(--dim); font-size: 12px; }
 
 footer {
   width: min(var(--max), calc(100vw - 48px));
@@ -555,11 +538,12 @@ tbody tr:focus-visible {
   .section-heading { align-items: start; flex-direction: column; }
   .date-controls { width: 100%; }
   .date-picker { flex: 1; justify-content: center; }
+  .analysis-date-controls { width: 100%; justify-content: stretch; }
+  .analysis-date-controls label { flex: 1 1 145px; }
+  .analysis-period { margin-top: -12px; text-align: left; }
   .table-toolbar { align-items: start; flex-direction: column; }
   .filter-chips { width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 3px; }
   .chip { flex: 0 0 auto; }
-  .pagination-shell { align-items: start; flex-direction: column; }
-  .pagination { width: 100%; justify-content: center; }
   .analysis-section { padding-bottom: 80px; }
   footer { margin-bottom: 82px; grid-template-columns: 1fr auto; }
   footer p { display: none; }

@@ -6,14 +6,17 @@ export function renderHomePage(model = {}) {
   const shots = model.shots || null;
   const analysis = model.analysis || null;
   const rowsHtml = shots ? renderShotRows(shots.data) : '<tr class="loading-row"><td colspan="6"><span class="loading-line"></span></td></tr>';
-  const page = shots && shots.pagination ? shots.pagination : { page: 1, total: 0, total_pages: 1 };
   const selectedDate = shots && shots.selected_date ? shots.selected_date : "";
   const selectedBucket = shots && shots.bucket ? shots.bucket : "all";
+  const shotTotal = shots ? Number(shots.total) || 0 : 0;
+  const daySummary = shots && shots.day_summary ? shots.day_summary : { total: 0, consistency_percent: 0 };
+  const analysisWindow = analysis && analysis.window ? analysis.window : { min_date: "", max_date: "" };
+  const analysisRange = analysis && analysis.range ? analysis.range : { start_date: "", end_date: "" };
   const scriptNonce = escapeHtml(model.nonce || "");
   const latestShot = shots && shots.data && shots.data[0] ? formatShot(shots.data[0].shot_ms) : "--.--s";
   const analysisTotal = analysis ? Number(analysis.total) || 0 : 0;
   const analysisAverage = analysis ? formatShot(analysis.average_ms) : "—";
-  const consistency = analysis ? consistencyPercent(analysis) : 0;
+  const consistency30d = analysis ? Number(analysis.consistency_30d_percent) || 0 : 0;
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -22,7 +25,7 @@ export function renderHomePage(model = {}) {
   <meta name="theme-color" content="#0b0a09">
   <meta name="description" content="A refined realtime shot log for the Casadio Undici espresso machine.">
   <title>BrewLedger — Casadio Shot Log</title>
-  <link rel="stylesheet" href="/assets/app.css?v=inline1">
+  <link rel="stylesheet" href="/assets/app.css?v=history1">
 </head>
 <body>
   <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -70,15 +73,15 @@ export function renderHomePage(model = {}) {
         </div>
         <div class="floating-card floating-bottom">
           <span>30-day consistency</span>
-          <strong id="heroConsistency">${consistency}%</strong>
+          <strong id="heroConsistency">${consistency30d}%</strong>
         </div>
       </div>
 
       <div class="hero-metrics reveal">
-        <article><span>Total / 30 days</span><strong id="metricTotal">${analysisTotal}</strong></article>
+        <article><span>Total / analysis range</span><strong id="metricTotal">${analysisTotal}</strong></article>
         <article><span>Average time</span><strong id="metricAverage">${analysisAverage}</strong></article>
-        <article><span>Selected day</span><strong id="metricSelected">${page.total}</strong></article>
-        <article><span>Target range</span><strong>25–28s</strong></article>
+        <article><span>Selected day</span><strong id="metricSelected">${Number(daySummary.total) || 0}</strong></article>
+        <article><span>Daily consistency</span><strong id="metricDailyConsistency">${Number(daySummary.consistency_percent) || 0}%</strong></article>
       </div>
     </section>
 
@@ -87,7 +90,7 @@ export function renderHomePage(model = {}) {
         <div>
           <p class="eyebrow">◫ Daily archive</p>
           <h2>Your recent extractions</h2>
-          <p>Browse up to 30 days of brew history.</p>
+          <p>Select a date to view every extraction recorded on that day.</p>
         </div>
         <div class="date-controls">
           <button class="icon-button" id="previousDay" type="button" aria-label="Previous day">‹</button>
@@ -104,7 +107,7 @@ export function renderHomePage(model = {}) {
           <div class="filter-chips" id="filterChips" aria-label="Filter by extraction time">
             ${renderFilterButtons(selectedBucket)}
           </div>
-          <span class="result-count" id="resultCount">${page.total} ${selectedBucket === "all" ? "shots" : "filtered shots"}</span>
+          <span class="result-count" id="resultCount">${shotTotal} ${selectedBucket === "all" ? "shots" : "filtered shots"}</span>
         </div>
 
         <div class="table-wrap">
@@ -123,10 +126,6 @@ export function renderHomePage(model = {}) {
           </table>
         </div>
 
-        <div class="pagination-shell">
-          <p id="pageSummary">Page ${page.page} of ${page.total_pages}</p>
-          <nav class="pagination" id="pagination" aria-label="Shot log pagination">${renderPagination(page, selectedDate, selectedBucket)}</nav>
-        </div>
       </div>
     </section>
 
@@ -135,10 +134,17 @@ export function renderHomePage(model = {}) {
         <div>
           <p class="eyebrow">◌ Performance map</p>
           <h2>Extraction analysis</h2>
-          <p>A clear breakdown of every shot from the last 30 days.</p>
+          <p>Explore daily averages across any date range stored in D1.</p>
         </div>
-        <span class="period-pill">Last 30 days</span>
+        <div class="analysis-date-controls" aria-label="Analysis date range">
+          <label><span>From</span><input id="analysisStart" type="date" value="${analysisRange.start_date}" min="${analysisWindow.min_date}" max="${analysisWindow.max_date}"></label>
+          <span class="range-arrow" aria-hidden="true">→</span>
+          <label><span>To</span><input id="analysisEnd" type="date" value="${analysisRange.end_date}" min="${analysisWindow.min_date}" max="${analysisWindow.max_date}"></label>
+          <button class="icon-button" id="analysisAll" type="button" aria-label="Show all history" title="Show all history">↺</button>
+        </div>
       </div>
+
+      <p class="analysis-period" id="analysisPeriod">${renderAnalysisPeriod(analysis)}</p>
 
       <div class="analysis-grid">
         <div class="panel distribution-panel reveal">
@@ -147,7 +153,7 @@ export function renderHomePage(model = {}) {
             <span class="panel-symbol">↗</span>
           </div>
           <div class="distribution-list" id="distributionList">${renderDistribution(analysis)}</div>
-          <p class="interaction-hint">Select a range to filter the shot log.</p>
+          <p class="interaction-hint">Select a range to filter the currently selected day.</p>
         </div>
 
         <div class="panel trend-panel reveal">
@@ -156,8 +162,7 @@ export function renderHomePage(model = {}) {
             <span class="target-legend"><i></i> 25s target</span>
           </div>
           <div class="chart-shell" id="chartShell">
-            <canvas id="trendChart" role="img" aria-label="Daily average extraction time chart"></canvas>
-            <div class="chart-tooltip" id="chartTooltip" hidden></div>
+            <div class="trend-chart" id="trendChart" role="img" aria-label="Daily average extraction time chart">${renderTrendChart(analysis)}</div>
           </div>
         </div>
       </div>
@@ -210,7 +215,7 @@ function renderShotRows(rows) {
       <td>${formatClock(row.created_at)}</td>
       <td><span class="shot-value">${formatShot(row.shot_ms)}</span></td>
       <td><span class="delta ${delta.className}">${delta.text}</span></td>
-      <td><span class="class-tag ${bucket.key === "25to28" ? "target" : ""}">${bucket.name}</span></td>
+      <td><span class="class-tag ${isConsistentShot(row.shot_ms) ? "target" : ""}">${bucket.name}</span></td>
       <td><span class="row-arrow" aria-hidden="true">↗</span></td>
     </tr>`;
   }).join("");
@@ -228,40 +233,6 @@ function renderFilterButtons(selected) {
   return filters.map(([key, label]) =>
     `<button class="chip${key === selected ? " active" : ""}" type="button" data-filter="${key}">${label}</button>`
   ).join("");
-}
-
-function renderPagination(pagination, selectedDate, selectedBucket) {
-  const current = Number(pagination.page) || 1;
-  const total = Number(pagination.total_pages) || 1;
-  const items = [];
-  items.push(current <= 1
-    ? '<span class="page-button disabled">‹</span>'
-    : pageLink(current - 1, "‹", selectedDate, selectedBucket));
-  paginationItems(current, total).forEach((item) => {
-    if (typeof item === "string") items.push('<span class="page-ellipsis">…</span>');
-    else items.push(pageLink(item, String(item), selectedDate, selectedBucket, item === current));
-  });
-  items.push(current >= total
-    ? '<span class="page-button disabled">›</span>'
-    : pageLink(current + 1, "›", selectedDate, selectedBucket));
-  return items.join("");
-}
-
-function paginationItems(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
-  const pages = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
-  const values = Array.from(pages).filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
-  const items = [];
-  values.forEach((page, index) => {
-    if (index > 0 && page - values[index - 1] > 1) items.push(`ellipsis-${index}`);
-    items.push(page);
-  });
-  return items;
-}
-
-function pageLink(page, label, selectedDate, selectedBucket, active = false) {
-  const query = `date=${encodeURIComponent(selectedDate)}&amp;page=${page}&amp;bucket=${encodeURIComponent(selectedBucket)}`;
-  return `<a class="page-button${active ? " active" : ""}" data-page="${page}" aria-label="Page ${page}" href="/?${query}#shot-log"${active ? ' aria-current="page"' : ""}>${label}</a>`;
 }
 
 function renderDistribution(analysis) {
@@ -285,6 +256,71 @@ function renderDistribution(analysis) {
   }).join("");
 }
 
+function renderAnalysisPeriod(analysis) {
+  if (!analysis || !analysis.range) return "No analysis range available";
+  const range = analysis.range;
+  const window = analysis.window || {};
+  const allHistory = range.start_date === window.min_date && range.end_date === window.max_date;
+  const label = allHistory ? "All history" : "Selected range";
+  return `${label} · ${formatDateLabel(range.start_date)} → ${formatDateLabel(range.end_date)} · ${Number(analysis.total) || 0} shots · ${Number(analysis.consistency_percent) || 0}% consistent at 24–27s`;
+}
+
+function renderTrendChart(analysis) {
+  const rows = analysis && Array.isArray(analysis.daily)
+    ? analysis.daily.filter((row) => Number.isFinite(Number(row.average_ms)))
+    : [];
+  if (rows.length === 0) {
+    return '<p class="chart-empty">No analysis data in this date range.</p>';
+  }
+
+  const width = 720;
+  const height = 320;
+  const pad = { top: 20, right: 18, bottom: 38, left: 46 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const seconds = rows.map((row) => Number(row.average_ms) / 1000);
+  const minY = Math.max(0, Math.floor(Math.min(20, ...seconds) - 2));
+  const maxY = Math.ceil(Math.max(30, ...seconds) + 2);
+  const xFor = (index) => pad.left + (rows.length === 1 ? plotWidth / 2 : index * plotWidth / (rows.length - 1));
+  const yFor = (value) => pad.top + (maxY - value) * plotHeight / Math.max(1, maxY - minY);
+  const points = rows.map((row, index) => ({
+    x: xFor(index),
+    y: yFor(Number(row.average_ms) / 1000),
+    row,
+  }));
+  const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+  const lastPoint = points[points.length - 1];
+  const areaPath = rows.length > 1
+    ? `${linePath} L${lastPoint.x.toFixed(2)} ${height - pad.bottom} L${points[0].x.toFixed(2)} ${height - pad.bottom} Z`
+    : "";
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const value = minY + (maxY - minY) * index / 4;
+    const y = yFor(value);
+    return `<g><line class="trend-grid" x1="${pad.left}" y1="${y.toFixed(2)}" x2="${width - pad.right}" y2="${y.toFixed(2)}"></line><text class="trend-axis" x="${pad.left - 9}" y="${(y + 3).toFixed(2)}" text-anchor="end">${value.toFixed(0)}s</text></g>`;
+  }).join("");
+  const labelIndexes = Array.from(new Set([0, Math.floor((rows.length - 1) / 2), rows.length - 1]));
+  const labels = labelIndexes.map((index) => {
+    const anchor = index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle";
+    return `<text class="trend-axis" x="${points[index].x.toFixed(2)}" y="${height - 10}" text-anchor="${anchor}">${escapeHtml(formatDateLabel(rows[index].date))}</text>`;
+  }).join("");
+  const dots = points.map((point) =>
+    `<circle class="trend-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4"><title>${escapeHtml(formatDateLabel(point.row.date))} · ${Number(point.row.count) || 0} shots · ${formatShot(point.row.average_ms)} average · ${Number(point.row.consistency_percent) || 0}% consistent</title></circle>`
+  ).join("");
+  const bandTop = yFor(27);
+  const bandBottom = yFor(24);
+
+  return `<svg viewBox="0 0 ${width} ${height}" aria-hidden="true">
+    <defs><linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c99b64" stop-opacity=".3"></stop><stop offset="1" stop-color="#c99b64" stop-opacity="0"></stop></linearGradient></defs>
+    <rect class="consistency-band" x="${pad.left}" y="${bandTop.toFixed(2)}" width="${plotWidth}" height="${(bandBottom - bandTop).toFixed(2)}"></rect>
+    ${grid}
+    <line class="target-line" x1="${pad.left}" y1="${yFor(25).toFixed(2)}" x2="${width - pad.right}" y2="${yFor(25).toFixed(2)}"></line>
+    ${areaPath ? `<path class="trend-area" d="${areaPath}"></path>` : ""}
+    <path class="trend-line" d="${linePath}"></path>
+    ${dots}
+    ${labels}
+  </svg>`;
+}
+
 function bucketInfo(ms) {
   const value = Number(ms);
   if (value < 20_000) return { key: "under20", name: "Very fast" };
@@ -292,6 +328,11 @@ function bucketInfo(ms) {
   if (value < 28_000) return { key: "25to28", name: "In range" };
   if (value <= 30_000) return { key: "28to30", name: "Slow" };
   return { key: "over30", name: "Very slow" };
+}
+
+function isConsistentShot(ms) {
+  const value = Number(ms);
+  return Number.isFinite(value) && value >= 24_000 && value <= 27_000;
 }
 
 function deltaInfo(ms) {
@@ -314,11 +355,10 @@ function formatClock(ms) {
   return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}:${String(date.getUTCSeconds()).padStart(2, "0")}`;
 }
 
-function consistencyPercent(analysis) {
-  const total = Number(analysis.total) || 0;
-  if (total === 0) return 0;
-  const buckets = analysis.buckets || {};
-  return Math.round(((Number(buckets["25to28"]) || 0) + (Number(buckets["28to30"]) || 0)) * 100 / total);
+function formatDateLabel(dateText) {
+  if (!dateText) return "—";
+  const parts = dateText.split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateText;
 }
 
 function escapeHtml(value) {

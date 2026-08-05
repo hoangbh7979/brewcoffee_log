@@ -1,7 +1,6 @@
 function clientApp() {
   "use strict";
 
-  const PAGE_SIZE = 10;
   const TARGET_MS = 25_000;
   const BUCKETS = [
     { key: "under20", label: "<20s", name: "Very fast", color: "#899eb7" },
@@ -13,13 +12,15 @@ function clientApp() {
 
   const state = {
     date: "",
-    page: 1,
     filter: "all",
     rows: [],
-    pagination: { page: 1, page_size: PAGE_SIZE, total: 0, total_pages: 1 },
+    total: 0,
+    daySummary: { total: 0, consistent: 0, consistency_percent: 0 },
     analysis: { total: 0, average_ms: 0, buckets: {}, daily: [] },
     window: { min_date: "", max_date: "" },
-    chartPoints: [],
+    analysisRange: { start_date: "", end_date: "" },
+    analysisWindow: { min_date: "", max_date: "" },
+    analysisAllHistory: true,
   };
 
   const elements = {
@@ -28,14 +29,14 @@ function clientApp() {
     previousDay: document.getElementById("previousDay"),
     nextDay: document.getElementById("nextDay"),
     resultCount: document.getElementById("resultCount"),
-    pageSummary: document.getElementById("pageSummary"),
-    pagination: document.getElementById("pagination"),
     filterChips: document.getElementById("filterChips"),
     distribution: document.getElementById("distributionList"),
     distributionTotal: document.getElementById("distributionTotal"),
     chart: document.getElementById("trendChart"),
-    chartShell: document.getElementById("chartShell"),
-    chartTooltip: document.getElementById("chartTooltip"),
+    analysisStart: document.getElementById("analysisStart"),
+    analysisEnd: document.getElementById("analysisEnd"),
+    analysisAll: document.getElementById("analysisAll"),
+    analysisPeriod: document.getElementById("analysisPeriod"),
     livePill: document.getElementById("livePill"),
     liveStatus: document.getElementById("liveStatus"),
     toast: document.getElementById("toast"),
@@ -139,13 +140,17 @@ function clientApp() {
       const initial = JSON.parse(source || "{}");
       if (!initial.shots || !initial.analysis) return false;
       state.rows = Array.isArray(initial.shots.data) ? initial.shots.data : [];
-      state.pagination = initial.shots.pagination || state.pagination;
-      state.page = Number(state.pagination.page) || 1;
+      state.total = Number(initial.shots.total) || 0;
+      state.daySummary = initial.shots.day_summary || state.daySummary;
       state.date = initial.shots.selected_date || "";
       state.filter = initial.shots.bucket || "all";
       state.window = initial.shots.window || state.window;
       state.analysis = initial.analysis;
+      state.analysisRange = initial.analysis.range || state.analysisRange;
+      state.analysisWindow = initial.analysis.window || state.analysisWindow;
+      state.analysisAllHistory = isAllHistory();
       syncDateControls();
+      syncAnalysisControls();
       renderShots();
       updateSelectedMetrics();
       renderAnalysis();
@@ -160,10 +165,7 @@ function clientApp() {
     const requestId = ++shotsRequest;
     if (!options.silent) renderLoading();
 
-    const params = new URLSearchParams({
-      page: String(state.page),
-      page_size: String(PAGE_SIZE),
-    });
+    const params = new URLSearchParams();
     if (state.date) params.set("date", state.date);
     if (state.filter !== "all") params.set("bucket", state.filter);
 
@@ -171,12 +173,14 @@ function clientApp() {
       const body = await apiJson("/api/shots?" + params.toString());
       if (requestId !== shotsRequest) return;
       state.rows = Array.isArray(body.data) ? body.data : [];
-      state.pagination = body.pagination || state.pagination;
+      state.total = Number(body.total) || 0;
+      state.daySummary = body.day_summary || state.daySummary;
       state.date = body.selected_date || state.date;
       state.window = body.window || state.window;
       renderShots();
       syncDateControls();
       updateSelectedMetrics();
+      syncUrl();
     } catch (error) {
       if (requestId !== shotsRequest) return;
       if (!options.silent) renderTableError();
@@ -187,9 +191,19 @@ function clientApp() {
   async function loadAnalysis(options = {}) {
     const requestId = ++analysisRequest;
     try {
-      const body = await apiJson("/api/analysis");
+      const params = new URLSearchParams();
+      if (!state.analysisAllHistory) {
+        params.set("start", state.analysisRange.start_date);
+        params.set("end", state.analysisRange.end_date);
+      }
+      const query = params.toString();
+      const body = await apiJson("/api/analysis" + (query ? "?" + query : ""));
       if (requestId !== analysisRequest) return;
       state.analysis = body.data || state.analysis;
+      state.analysisRange = state.analysis.range || state.analysisRange;
+      state.analysisWindow = state.analysis.window || state.analysisWindow;
+      if (state.analysisAllHistory) state.analysisAllHistory = isAllHistory();
+      syncAnalysisControls();
       renderAnalysis();
       renderHeroMetrics();
     } catch {
@@ -218,7 +232,8 @@ function clientApp() {
         const delta = deltaInfo(row.shot_ms);
         const bucket = bucketInfo(bucketFor(row.shot_ms));
         const brew = Number.isFinite(Number(row.brew_counter)) ? "#" + Math.trunc(Number(row.brew_counter)) : "—";
-        const targetClass = bucket.key === "25to28" ? " target" : "";
+        const value = Number(row.shot_ms);
+        const targetClass = Number.isFinite(value) && value >= 24_000 && value <= 27_000 ? " target" : "";
         return '<tr tabindex="0" data-row-index="' + index + '">' +
           '<td><span class="brew-number">' + escapeHtml(brew) + "</span></td>" +
           "<td>" + escapeHtml(formatClock(row.created_at)) + "</td>" +
@@ -230,43 +245,8 @@ function clientApp() {
       }).join("");
     }
 
-    const pagination = state.pagination;
     const filterText = state.filter === "all" ? "shots" : bucketInfo(state.filter).label + " shots";
-    elements.resultCount.textContent = pagination.total + " " + filterText;
-    elements.pageSummary.textContent = "Page " + pagination.page + " of " + pagination.total_pages;
-    renderPagination();
-  }
-
-  function paginationItems(current, total) {
-    if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
-    const pages = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
-    const values = Array.from(pages).filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
-    const items = [];
-    values.forEach((page, index) => {
-      if (index > 0 && page - values[index - 1] > 1) items.push("ellipsis-" + index);
-      items.push(page);
-    });
-    return items;
-  }
-
-  function renderPagination() {
-    const current = state.pagination.page;
-    const total = state.pagination.total_pages;
-    const pageHref = (page) => {
-      const params = new URLSearchParams({ date: state.date, page: String(page), bucket: state.filter });
-      return "/?" + params.toString() + "#shot-log";
-    };
-    const previous = current <= 1
-      ? '<span class="page-button disabled" aria-hidden="true">‹</span>'
-      : '<a class="page-button" data-page="' + (current - 1) + '" aria-label="Previous page" href="' + pageHref(current - 1) + '">‹</a>';
-    const next = current >= total
-      ? '<span class="page-button disabled" aria-hidden="true">›</span>'
-      : '<a class="page-button" data-page="' + (current + 1) + '" aria-label="Next page" href="' + pageHref(current + 1) + '">›</a>';
-    const pages = paginationItems(current, total).map((item) => {
-      if (typeof item === "string") return '<span class="page-ellipsis">…</span>';
-      return '<a class="page-button' + (item === current ? " active" : "") + '" data-page="' + item + '" aria-label="Page ' + item + '" href="' + pageHref(item) + '" ' + (item === current ? 'aria-current="page"' : "") + ">" + item + "</a>";
-    }).join("");
-    elements.pagination.innerHTML = previous + pages + next;
+    elements.resultCount.textContent = state.total + " " + filterText;
   }
 
   function syncDateControls() {
@@ -277,8 +257,36 @@ function clientApp() {
     elements.nextDay.disabled = Boolean(state.window.max_date && state.date >= state.window.max_date);
   }
 
+  function syncAnalysisControls() {
+    elements.analysisStart.value = state.analysisRange.start_date || "";
+    elements.analysisEnd.value = state.analysisRange.end_date || "";
+    elements.analysisStart.min = state.analysisWindow.min_date || "";
+    elements.analysisStart.max = state.analysisWindow.max_date || "";
+    elements.analysisEnd.min = state.analysisWindow.min_date || "";
+    elements.analysisEnd.max = state.analysisWindow.max_date || "";
+    elements.analysisAll.classList.toggle("active", state.analysisAllHistory);
+  }
+
+  function isAllHistory() {
+    return Boolean(
+      state.analysisRange.start_date
+      && state.analysisRange.start_date === state.analysisWindow.min_date
+      && state.analysisRange.end_date === state.analysisWindow.max_date
+    );
+  }
+
+  function syncUrl() {
+    const url = new URL(location.href);
+    url.searchParams.set("date", state.date);
+    if (state.filter === "all") url.searchParams.delete("bucket");
+    else url.searchParams.set("bucket", state.filter);
+    url.searchParams.delete("page");
+    history.replaceState(null, "", url.pathname + "?" + url.searchParams.toString() + url.hash);
+  }
+
   function updateSelectedMetrics() {
-    document.getElementById("metricSelected").textContent = String(state.pagination.total);
+    document.getElementById("metricSelected").textContent = String(Number(state.daySummary.total) || 0);
+    document.getElementById("metricDailyConsistency").textContent = (Number(state.daySummary.consistency_percent) || 0) + "%";
     const latest = state.rows[0];
     document.getElementById("heroLatest").textContent = latest ? formatShot(latest.shot_ms) : "--.--s";
   }
@@ -287,10 +295,7 @@ function clientApp() {
     const analysis = state.analysis;
     document.getElementById("metricTotal").textContent = String(analysis.total || 0);
     document.getElementById("metricAverage").textContent = formatShot(analysis.average_ms);
-    const buckets = analysis.buckets || {};
-    const consistent = (Number(buckets["25to28"]) || 0) + (Number(buckets["28to30"]) || 0);
-    const percent = analysis.total > 0 ? Math.round(consistent * 100 / analysis.total) : 0;
-    document.getElementById("heroConsistency").textContent = percent + "%";
+    document.getElementById("heroConsistency").textContent = (Number(analysis.consistency_30d_percent) || 0) + "%";
   }
 
   function renderAnalysis() {
@@ -306,129 +311,64 @@ function clientApp() {
         '<strong class="distribution-value">' + count + "</strong>" +
         "</button>";
     }).join("");
-    requestAnimationFrame(drawChart);
+    elements.analysisPeriod.textContent = analysisPeriodText(analysis);
+    elements.chart.innerHTML = trendChartMarkup(analysis);
   }
 
-  function drawChart() {
-    const canvas = elements.chart;
-    const shell = elements.chartShell;
-    if (!canvas || !shell) return;
-    const rect = shell.getBoundingClientRect();
-    const width = Math.max(320, Math.round(rect.width));
-    const height = Math.max(260, Math.round(rect.height));
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
+  function analysisPeriodText(analysis) {
+    if (!analysis || !analysis.range) return "No analysis range available";
+    const range = analysis.range;
+    const window = analysis.window || {};
+    const allHistory = range.start_date === window.min_date && range.end_date === window.max_date;
+    const label = allHistory ? "All history" : "Selected range";
+    return label + " · " + formatDateLabel(range.start_date) + " → " + formatDateLabel(range.end_date) + " · " + (Number(analysis.total) || 0) + " shots · " + (Number(analysis.consistency_percent) || 0) + "% consistent at 24–27s";
+  }
 
-    const rows = Array.isArray(state.analysis.daily) ? state.analysis.daily : [];
-    if (rows.length === 0) {
-      ctx.fillStyle = "#777168";
-      ctx.font = "12px Inter, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("No analysis data yet", width / 2, height / 2);
-      state.chartPoints = [];
-      return;
-    }
+  function trendChartMarkup(analysis) {
+    const rows = analysis && Array.isArray(analysis.daily)
+      ? analysis.daily.filter((row) => Number.isFinite(Number(row.average_ms)))
+      : [];
+    if (rows.length === 0) return '<p class="chart-empty">No analysis data in this date range.</p>';
 
-    const pad = { top: 24, right: 18, bottom: 34, left: 42 };
+    const width = 720;
+    const height = 320;
+    const pad = { top: 20, right: 18, bottom: 38, left: 46 };
     const plotWidth = width - pad.left - pad.right;
     const plotHeight = height - pad.top - pad.bottom;
-    const seconds = rows.map((row) => Number(row.average_ms) / 1000).filter(Number.isFinite);
-    const minY = Math.max(0, Math.floor(Math.min(20, ...seconds) - 3));
-    const maxY = Math.ceil(Math.max(30, ...seconds) + 3);
+    const seconds = rows.map((row) => Number(row.average_ms) / 1000);
+    const minY = Math.max(0, Math.floor(Math.min(20, ...seconds) - 2));
+    const maxY = Math.ceil(Math.max(30, ...seconds) + 2);
     const xFor = (index) => pad.left + (rows.length === 1 ? plotWidth / 2 : index * plotWidth / (rows.length - 1));
     const yFor = (value) => pad.top + (maxY - value) * plotHeight / Math.max(1, maxY - minY);
-
-    ctx.strokeStyle = "rgba(245,238,225,.09)";
-    ctx.fillStyle = "#777168";
-    ctx.font = "10px Inter, sans-serif";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    for (let index = 0; index <= 4; index += 1) {
+    const points = rows.map((row, index) => ({ x: xFor(index), y: yFor(Number(row.average_ms) / 1000), row }));
+    const linePath = points.map((point, index) => (index === 0 ? "M" : "L") + point.x.toFixed(2) + " " + point.y.toFixed(2)).join(" ");
+    const lastPoint = points[points.length - 1];
+    const areaPath = rows.length > 1
+      ? linePath + " L" + lastPoint.x.toFixed(2) + " " + (height - pad.bottom) + " L" + points[0].x.toFixed(2) + " " + (height - pad.bottom) + " Z"
+      : "";
+    const grid = Array.from({ length: 5 }, (_, index) => {
       const value = minY + (maxY - minY) * index / 4;
       const y = yFor(value);
-      ctx.beginPath();
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(width - pad.right, y);
-      ctx.stroke();
-      ctx.fillText(value.toFixed(0) + "s", pad.left - 9, y);
-    }
-
-    const targetY = yFor(25);
-    ctx.setLineDash([5, 6]);
-    ctx.strokeStyle = "rgba(201,155,100,.65)";
-    ctx.beginPath();
-    ctx.moveTo(pad.left, targetY);
-    ctx.lineTo(width - pad.right, targetY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    const gradient = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
-    gradient.addColorStop(0, "rgba(201,155,100,.28)");
-    gradient.addColorStop(1, "rgba(201,155,100,0)");
-    ctx.beginPath();
-    rows.forEach((row, index) => {
-      const x = xFor(index);
-      const y = yFor(Number(row.average_ms) / 1000);
-      if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.lineTo(xFor(rows.length - 1), height - pad.bottom);
-    ctx.lineTo(xFor(0), height - pad.bottom);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
-
-    ctx.beginPath();
-    rows.forEach((row, index) => {
-      const x = xFor(index);
-      const y = yFor(Number(row.average_ms) / 1000);
-      if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = "#c99b64";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    state.chartPoints = rows.map((row, index) => {
-      const point = { x: xFor(index), y: yFor(Number(row.average_ms) / 1000), row };
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#eee8de";
-      ctx.fill();
-      ctx.strokeStyle = "#171513";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      return point;
-    });
-
+      return '<g><line class="trend-grid" x1="' + pad.left + '" y1="' + y.toFixed(2) + '" x2="' + (width - pad.right) + '" y2="' + y.toFixed(2) + '"></line><text class="trend-axis" x="' + (pad.left - 9) + '" y="' + (y + 3).toFixed(2) + '" text-anchor="end">' + value.toFixed(0) + "s</text></g>";
+    }).join("");
     const labelIndexes = Array.from(new Set([0, Math.floor((rows.length - 1) / 2), rows.length - 1]));
-    ctx.fillStyle = "#777168";
-    ctx.font = "10px Inter, sans-serif";
-    ctx.textBaseline = "top";
-    labelIndexes.forEach((index) => {
-      ctx.textAlign = index === 0 ? "left" : index === rows.length - 1 ? "right" : "center";
-      ctx.fillText(formatDateLabel(rows[index].date).slice(0, 5), xFor(index), height - pad.bottom + 12);
-    });
-  }
+    const labels = labelIndexes.map((index) => {
+      const anchor = index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle";
+      return '<text class="trend-axis" x="' + points[index].x.toFixed(2) + '" y="' + (height - 10) + '" text-anchor="' + anchor + '">' + escapeHtml(formatDateLabel(rows[index].date)) + "</text>";
+    }).join("");
+    const dots = points.map((point) =>
+      '<circle class="trend-point" cx="' + point.x.toFixed(2) + '" cy="' + point.y.toFixed(2) + '" r="4"><title>' + escapeHtml(formatDateLabel(point.row.date)) + " · " + (Number(point.row.count) || 0) + " shots · " + formatShot(point.row.average_ms) + " average · " + (Number(point.row.consistency_percent) || 0) + "% consistent</title></circle>"
+    ).join("");
+    const bandTop = yFor(27);
+    const bandBottom = yFor(24);
 
-  function showChartTooltip(event) {
-    if (state.chartPoints.length === 0) return;
-    const rect = elements.chart.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    let nearest = state.chartPoints[0];
-    state.chartPoints.forEach((point) => {
-      if (Math.abs(point.x - x) < Math.abs(nearest.x - x)) nearest = point;
-    });
-    if (Math.abs(nearest.x - x) > 28) {
-      elements.chartTooltip.hidden = true;
-      return;
-    }
-    elements.chartTooltip.innerHTML = formatDateLabel(nearest.row.date) + " · " + nearest.row.count + " shots<strong>" + formatShot(nearest.row.average_ms) + " avg</strong>";
-    elements.chartTooltip.style.left = nearest.x + "px";
-    elements.chartTooltip.style.top = nearest.y + "px";
-    elements.chartTooltip.hidden = false;
+    return '<svg viewBox="0 0 ' + width + " " + height + '" aria-hidden="true">' +
+      '<defs><linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c99b64" stop-opacity=".3"></stop><stop offset="1" stop-color="#c99b64" stop-opacity="0"></stop></linearGradient></defs>' +
+      '<rect class="consistency-band" x="' + pad.left + '" y="' + bandTop.toFixed(2) + '" width="' + plotWidth + '" height="' + (bandBottom - bandTop).toFixed(2) + '"></rect>' +
+      grid +
+      '<line class="target-line" x1="' + pad.left + '" y1="' + yFor(25).toFixed(2) + '" x2="' + (width - pad.right) + '" y2="' + yFor(25).toFixed(2) + '"></line>' +
+      (areaPath ? '<path class="trend-area" d="' + areaPath + '"></path>' : "") +
+      '<path class="trend-line" d="' + linePath + '"></path>' + dots + labels + "</svg>";
   }
 
   function openShot(index) {
@@ -448,7 +388,6 @@ function clientApp() {
 
   function setFilter(filter) {
     state.filter = filter || "all";
-    state.page = 1;
     elements.filterChips.querySelectorAll("[data-filter]").forEach((button) => {
       button.classList.toggle("active", button.dataset.filter === state.filter);
     });
@@ -458,7 +397,6 @@ function clientApp() {
   function changeDate(date) {
     if (!date || date < state.window.min_date || date > state.window.max_date) return;
     state.date = date;
-    state.page = 1;
     loadShots();
   }
 
@@ -467,6 +405,28 @@ function clientApp() {
     const start = Date.parse(state.date + "T00:00:00+07:00");
     const shifted = new Date(start + days * 24 * 60 * 60 * 1000 + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
     changeDate(shifted);
+  }
+
+  function changeAnalysisRange(boundary, date) {
+    if (!date || date < state.analysisWindow.min_date || date > state.analysisWindow.max_date) return;
+    state.analysisAllHistory = false;
+    state.analysisRange[boundary] = date;
+    if (state.analysisRange.start_date > state.analysisRange.end_date) {
+      if (boundary === "start_date") state.analysisRange.end_date = date;
+      else state.analysisRange.start_date = date;
+    }
+    syncAnalysisControls();
+    loadAnalysis();
+  }
+
+  function showAllAnalysis() {
+    state.analysisAllHistory = true;
+    state.analysisRange = {
+      start_date: state.analysisWindow.min_date,
+      end_date: state.analysisWindow.max_date,
+    };
+    syncAnalysisControls();
+    loadAnalysis();
   }
 
   function showToast(message) {
@@ -555,16 +515,9 @@ function clientApp() {
     const button = event.target.closest("[data-filter]");
     if (button) setFilter(button.dataset.filter);
   });
-  elements.pagination.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-page]");
-    if (!button) return;
-    const page = Number(button.dataset.page);
-    if (!Number.isInteger(page) || page < 1 || page > state.pagination.total_pages) return;
-    event.preventDefault();
-    state.page = page;
-    loadShots();
-    document.getElementById("shot-log").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+  elements.analysisStart.addEventListener("change", () => changeAnalysisRange("start_date", elements.analysisStart.value));
+  elements.analysisEnd.addEventListener("change", () => changeAnalysisRange("end_date", elements.analysisEnd.value));
+  elements.analysisAll.addEventListener("click", showAllAnalysis);
   elements.table.addEventListener("click", (event) => {
     const row = event.target.closest("[data-row-index]");
     if (row) openShot(Number(row.dataset.rowIndex));
@@ -587,14 +540,6 @@ function clientApp() {
   elements.dialog.addEventListener("click", (event) => {
     if (event.target === elements.dialog) elements.dialog.close();
   });
-  elements.chart.addEventListener("mousemove", showChartTooltip);
-  elements.chart.addEventListener("mouseleave", () => { elements.chartTooltip.hidden = true; });
-
-  if ("ResizeObserver" in window) {
-    new ResizeObserver(() => requestAnimationFrame(drawChart)).observe(elements.chartShell);
-  } else {
-    window.addEventListener("resize", drawChart);
-  }
 
   const sections = Array.from(document.querySelectorAll(".section-anchor"));
   const navLinks = Array.from(document.querySelectorAll("[data-nav]"));
