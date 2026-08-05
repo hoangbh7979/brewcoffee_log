@@ -6,9 +6,10 @@ Dashboard theo dõi thời gian pha của máy Casadio Undici, chạy trên Clou
 
 - Nhận dữ liệu qua HTTP hoặc WebSocket với `API_KEY`.
 - Realtime dashboard qua Durable Object WebSocket Hibernation.
-- Xem shot theo từng ngày trong 30 ngày gần nhất, 10 shot mỗi trang.
-- Phân trang, lọc theo khoảng thời gian và xem chi tiết từng shot.
-- Analysis 30 ngày với 5 nhóm: `<20s`, `20–25s`, `25–28s`, `28–30s`, `>30s`.
+- Xem toàn bộ lịch sử D1 theo từng ngày, không giới hạn 30 ngày.
+- Điều hướng ngày bằng bộ chọn ngày và nút trước/sau; bộ lọc shot nằm theo ngày, không phân trang.
+- Analysis theo khoảng ngày tùy chọn với 5 nhóm: `<20s`, `20–25s`, `25–28s`, `28–30s`, `>30s`.
+- Hiển thị phần trăm consistency cho ngày đang chọn và toàn bộ 30 ngày gần nhất.
 
 ## Chạy local
 
