@@ -1,3 +1,5 @@
+import { CLIENT_SCRIPT } from "./page-client.js";
+
 const TARGET_MS = 25_000;
 
 export function renderHomePage(model = {}) {
@@ -7,6 +9,7 @@ export function renderHomePage(model = {}) {
   const page = shots && shots.pagination ? shots.pagination : { page: 1, total: 0, total_pages: 1 };
   const selectedDate = shots && shots.selected_date ? shots.selected_date : "";
   const selectedBucket = shots && shots.bucket ? shots.bucket : "all";
+  const scriptNonce = escapeHtml(model.nonce || "");
   const latestShot = shots && shots.data && shots.data[0] ? formatShot(shots.data[0].shot_ms) : "--.--s";
   const analysisTotal = analysis ? Number(analysis.total) || 0 : 0;
   const analysisAverage = analysis ? formatShot(analysis.average_ms) : "—";
@@ -19,8 +22,7 @@ export function renderHomePage(model = {}) {
   <meta name="theme-color" content="#0b0a09">
   <meta name="description" content="A refined realtime shot log for the Casadio Undici espresso machine.">
   <title>BrewLedger — Casadio Shot Log</title>
-  <link rel="stylesheet" href="/assets/app.css?v=ssr2">
-  <script src="/assets/app.js?v=ssr2" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=inline1">
 </head>
 <body>
   <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -123,7 +125,7 @@ export function renderHomePage(model = {}) {
 
         <div class="pagination-shell">
           <p id="pageSummary">Page ${page.page} of ${page.total_pages}</p>
-          <nav class="pagination" id="pagination" aria-label="Shot log pagination">${renderPagination(page)}</nav>
+          <nav class="pagination" id="pagination" aria-label="Shot log pagination">${renderPagination(page, selectedDate, selectedBucket)}</nav>
         </div>
       </div>
     </section>
@@ -183,6 +185,7 @@ export function renderHomePage(model = {}) {
 
   <template id="initialState">${escapeHtml(JSON.stringify({ shots, analysis }))}</template>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script nonce="${scriptNonce}">${CLIENT_SCRIPT}</script>
 </body>
 </html>`;
 
@@ -227,20 +230,38 @@ function renderFilterButtons(selected) {
   ).join("");
 }
 
-function renderPagination(pagination) {
+function renderPagination(pagination, selectedDate, selectedBucket) {
   const current = Number(pagination.page) || 1;
   const total = Number(pagination.total_pages) || 1;
   const items = [];
-  items.push(`<button class="page-button" type="button" data-page="${current - 1}" ${current <= 1 ? "disabled" : ""}>‹</button>`);
-  for (let page = 1; page <= Math.min(total, 5); page += 1) {
-    items.push(`<button class="page-button${page === current ? " active" : ""}" type="button" data-page="${page}">${page}</button>`);
-  }
-  if (total > 5) {
-    items.push('<span class="page-ellipsis">…</span>');
-    items.push(`<button class="page-button${total === current ? " active" : ""}" type="button" data-page="${total}">${total}</button>`);
-  }
-  items.push(`<button class="page-button" type="button" data-page="${current + 1}" ${current >= total ? "disabled" : ""}>›</button>`);
+  items.push(current <= 1
+    ? '<span class="page-button disabled">‹</span>'
+    : pageLink(current - 1, "‹", selectedDate, selectedBucket));
+  paginationItems(current, total).forEach((item) => {
+    if (typeof item === "string") items.push('<span class="page-ellipsis">…</span>');
+    else items.push(pageLink(item, String(item), selectedDate, selectedBucket, item === current));
+  });
+  items.push(current >= total
+    ? '<span class="page-button disabled">›</span>'
+    : pageLink(current + 1, "›", selectedDate, selectedBucket));
   return items.join("");
+}
+
+function paginationItems(current, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+  const pages = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
+  const values = Array.from(pages).filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+  const items = [];
+  values.forEach((page, index) => {
+    if (index > 0 && page - values[index - 1] > 1) items.push(`ellipsis-${index}`);
+    items.push(page);
+  });
+  return items;
+}
+
+function pageLink(page, label, selectedDate, selectedBucket, active = false) {
+  const query = `date=${encodeURIComponent(selectedDate)}&amp;page=${page}&amp;bucket=${encodeURIComponent(selectedBucket)}`;
+  return `<a class="page-button${active ? " active" : ""}" data-page="${page}" aria-label="Page ${page}" href="/?${query}#shot-log"${active ? ' aria-current="page"' : ""}>${label}</a>`;
 }
 
 function renderDistribution(analysis) {

@@ -12,6 +12,7 @@ test("renderHomePage includes server-rendered rows and pagination", async () => 
     avg_ms: 25_000,
   }));
   const response = renderHomePage({
+    nonce: "test-nonce",
     shots: {
       data: rows,
       selected_date: "2026-08-05",
@@ -27,9 +28,14 @@ test("renderHomePage includes server-rendered rows and pagination", async () => 
     },
   });
   const html = await response.text();
+  const tableBody = html.match(/<tbody id="shotsTable">([\s\S]*?)<\/tbody>/);
 
-  assert.equal((html.match(/class="brew-number"/g) || []).length, 10);
+  assert.ok(tableBody);
+  assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 10);
   assert.match(html, /value="2026-08-05"/);
   assert.match(html, /Page 1 of 8/);
   assert.match(html, /75 extractions/);
+  assert.match(html, /<script nonce="test-nonce">/);
+  assert.doesNotMatch(html, /src="\/assets\/app\.js/);
+  assert.match(html, /href="\/\?date=2026-08-05&amp;page=2&amp;bucket=all#shot-log"/);
 });

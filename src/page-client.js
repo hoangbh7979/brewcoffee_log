@@ -140,6 +140,7 @@ function clientApp() {
       if (!initial.shots || !initial.analysis) return false;
       state.rows = Array.isArray(initial.shots.data) ? initial.shots.data : [];
       state.pagination = initial.shots.pagination || state.pagination;
+      state.page = Number(state.pagination.page) || 1;
       state.date = initial.shots.selected_date || "";
       state.filter = initial.shots.bucket || "all";
       state.window = initial.shots.window || state.window;
@@ -251,11 +252,19 @@ function clientApp() {
   function renderPagination() {
     const current = state.pagination.page;
     const total = state.pagination.total_pages;
-    const previous = '<button class="page-button" type="button" data-page="' + (current - 1) + '" aria-label="Previous page" ' + (current <= 1 ? "disabled" : "") + ">‹</button>";
-    const next = '<button class="page-button" type="button" data-page="' + (current + 1) + '" aria-label="Next page" ' + (current >= total ? "disabled" : "") + ">›</button>";
+    const pageHref = (page) => {
+      const params = new URLSearchParams({ date: state.date, page: String(page), bucket: state.filter });
+      return "/?" + params.toString() + "#shot-log";
+    };
+    const previous = current <= 1
+      ? '<span class="page-button disabled" aria-hidden="true">‹</span>'
+      : '<a class="page-button" data-page="' + (current - 1) + '" aria-label="Previous page" href="' + pageHref(current - 1) + '">‹</a>';
+    const next = current >= total
+      ? '<span class="page-button disabled" aria-hidden="true">›</span>'
+      : '<a class="page-button" data-page="' + (current + 1) + '" aria-label="Next page" href="' + pageHref(current + 1) + '">›</a>';
     const pages = paginationItems(current, total).map((item) => {
       if (typeof item === "string") return '<span class="page-ellipsis">…</span>';
-      return '<button class="page-button' + (item === current ? " active" : "") + '" type="button" data-page="' + item + '" aria-label="Page ' + item + '" ' + (item === current ? 'aria-current="page"' : "") + ">" + item + "</button>";
+      return '<a class="page-button' + (item === current ? " active" : "") + '" data-page="' + item + '" aria-label="Page ' + item + '" href="' + pageHref(item) + '" ' + (item === current ? 'aria-current="page"' : "") + ">" + item + "</a>";
     }).join("");
     elements.pagination.innerHTML = previous + pages + next;
   }
@@ -548,9 +557,10 @@ function clientApp() {
   });
   elements.pagination.addEventListener("click", (event) => {
     const button = event.target.closest("[data-page]");
-    if (!button || button.disabled) return;
+    if (!button) return;
     const page = Number(button.dataset.page);
     if (!Number.isInteger(page) || page < 1 || page > state.pagination.total_pages) return;
+    event.preventDefault();
     state.page = page;
     loadShots();
     document.getElementById("shot-log").scrollIntoView({ behavior: "smooth", block: "start" });

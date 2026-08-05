@@ -12,7 +12,6 @@ import { handleWsIngest } from "./ws-ingest.js";
 export { ShotHub } from "./shot-hub.js";
 
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
   "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "X-Content-Type-Options": "nosniff",
@@ -67,7 +66,8 @@ async function routeRequest(request, env) {
       }),
       getShotAnalysis(env),
     ]);
-    return withSecurityHeaders(renderHomePage({ shots, analysis }));
+    const nonce = crypto.randomUUID();
+    return withSecurityHeaders(renderHomePage({ shots, analysis, nonce }), nonce);
   }
 
   if (url.pathname === "/api/ws") {
@@ -134,8 +134,12 @@ async function healthResponse(env, origin) {
   }
 }
 
-function withSecurityHeaders(response) {
+function withSecurityHeaders(response, nonce) {
   const headers = new Headers(response.headers);
   Object.entries(SECURITY_HEADERS).forEach(([name, value]) => headers.set(name, value));
+  headers.set(
+    "Content-Security-Policy",
+    `default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-${nonce}'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
+  );
   return new Response(response.body, { status: response.status, headers });
 }

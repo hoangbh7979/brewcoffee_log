@@ -400,10 +400,13 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
   color: var(--muted);
   cursor: pointer;
   font-size: 12px;
+  display: inline-grid;
+  place-items: center;
 }
 .page-button:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.055); }
 .page-button.active { color: var(--ink); background: var(--cream); }
 .page-button:disabled { opacity: .25; cursor: default; }
+.page-button.disabled { opacity: .25; cursor: default; pointer-events: none; }
 .page-ellipsis { color: var(--dim); padding: 0 4px; }
 
 .analysis-grid { display: grid; grid-template-columns: .86fr 1.14fr; gap: 18px; }
