@@ -35,9 +35,13 @@ test("consistency uses the inclusive 24 to 27 second range result", () => {
   assert.equal(consistencyPercent(0, 0), 0);
 });
 
-test("analysis range defaults to all D1 dates and normalizes reversed input", () => {
+test("analysis range defaults to the trailing three calendar months and can expand to all D1", () => {
   const bounds = { minDate: "2026-01-10", maxDate: "2026-08-05" };
-  const all = resolveAnalysisRange({}, bounds);
+  const recent = resolveAnalysisRange({}, bounds);
+  assert.equal(recent.startDate, "2026-05-05");
+  assert.equal(recent.endDate, "2026-08-05");
+
+  const all = resolveAnalysisRange({ allHistory: true }, bounds);
   assert.equal(all.startDate, "2026-01-10");
   assert.equal(all.endDate, "2026-08-05");
 
@@ -113,7 +117,7 @@ test("getShotAnalysis aggregates all D1 history while keeping 30-day consistency
     throw new Error(`Unexpected query: ${sql}`);
   });
 
-  const result = await getShotAnalysis(env, { now: NOW, includePoints: true });
+  const result = await getShotAnalysis(env, { now: NOW, allHistory: true, includePoints: true });
   assert.deepEqual(result.range, { start_date: "2026-01-10", end_date: "2026-08-05" });
   assert.equal(result.total, 100);
   assert.equal(result.consistency_percent, 35);

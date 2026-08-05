@@ -66,6 +66,7 @@ async function routeRequest(request, env) {
       getShotAnalysis(env, {
         start: url.searchParams.get("analysis_start") || "",
         end: url.searchParams.get("analysis_end") || "",
+        allHistory: url.searchParams.get("analysis_all") === "1",
         includePoints: view === "shots",
       }),
     ]);
@@ -124,6 +125,7 @@ async function routeRequest(request, env) {
     const result = await getShotAnalysis(env, {
       start: url.searchParams.get("start") || "",
       end: url.searchParams.get("end") || "",
+      allHistory: url.searchParams.get("all") === "1",
       includePoints: url.searchParams.get("include_points") === "1",
     });
     return json({ ok: true, data: result }, origin, ALLOWED_ORIGIN);

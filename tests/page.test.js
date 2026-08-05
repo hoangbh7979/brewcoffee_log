@@ -61,7 +61,7 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.match(html, /id="analysisDateForm" method="get" action="\/#analysis"/);
   assert.match(html, /name="analysis_start"/);
   assert.match(html, /name="analysis_end"/);
-  assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05#analysis"/);
+  assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05&amp;analysis_all=1#analysis"/);
   assert.match(html, /id="bucketMix"/);
   assert.match(html, /class="donut-chart"/);
   assert.match(html, /class="chart-mode-link active"/);

@@ -203,6 +203,8 @@ function clientApp() {
       if (!state.analysisAllHistory) {
         params.set("start", state.analysisRange.start_date);
         params.set("end", state.analysisRange.end_date);
+      } else {
+        params.set("all", "1");
       }
       if (options.includePoints || state.chartMode === "shots") params.set("include_points", "1");
       const query = params.toString();

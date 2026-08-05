@@ -54,9 +54,13 @@ export function consistencyPercent(consistent, total) {
 }
 
 export function resolveAnalysisRange(options, bounds) {
+  const allHistory = Boolean(options && options.allHistory);
+  const defaultStart = allHistory
+    ? bounds.minDate
+    : maxDate(bounds.minDate, shiftDateByMonths(bounds.maxDate, -3));
   let startDate = isDateWithinBounds(options && options.start, bounds)
     ? options.start
-    : bounds.minDate;
+    : defaultStart;
   let endDate = isDateWithinBounds(options && options.end, bounds)
     ? options.end
     : bounds.maxDate;
@@ -73,6 +77,20 @@ export function resolveAnalysisRange(options, bounds) {
     start: startRange.start,
     end: endRange.end,
   };
+}
+
+function shiftDateByMonths(dateText, months) {
+  const [year, month, day] = String(dateText || "").split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return dateText;
+  const pivot = new Date(Date.UTC(year, month - 1 + months, 1));
+  const targetYear = pivot.getUTCFullYear();
+  const targetMonth = pivot.getUTCMonth() + 1;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate();
+  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+function maxDate(left, right) {
+  return left > right ? left : right;
 }
 
 export async function listShots(env, limit) {

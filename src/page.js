@@ -252,6 +252,7 @@ function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMo
   const resetParams = new URLSearchParams();
   if (selectedDate) resetParams.set("date", selectedDate);
   if (bucket && bucket !== "all") resetParams.set("bucket", bucket);
+  resetParams.set("analysis_all", "1");
   if (chartMode === "shots") resetParams.set("view", "shots");
   const resetHref = "/" + (resetParams.toString() ? "?" + resetParams.toString() : "") + "#analysis";
   return `<form class="analysis-date-controls" id="analysisDateForm" method="get" action="/#analysis">
