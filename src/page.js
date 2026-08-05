@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "brand1";
+const ASSET_VERSION = "brand2";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -27,6 +27,8 @@ export function renderHomePage(model = {}) {
   <meta name="theme-color" content="#0b0a09">
   <meta name="description" content="A refined realtime shot log for the Casadio Undici espresso machine.">
   <title>BrewLedger — Casadio Shot Log</title>
+  <link rel="icon" type="image/png" sizes="256x256" href="/ut_tam_favicon.png">
+  <link rel="apple-touch-icon" href="/ut_tam_favicon.png">
   <link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION}">
 </head>
 <body>
@@ -34,20 +36,22 @@ export function renderHomePage(model = {}) {
   <div class="ambient ambient-two" aria-hidden="true"></div>
 
   <header class="site-header" id="top">
-    <nav class="nav-shell" aria-label="Primary navigation">
+    <div class="header-layout">
       <a class="brand brand-ut-tam" href="#overview" aria-label="UT-TAM Brew Coffee home">
         <img src="/ut_tam_logo_dark.png" width="110" height="72" alt="UT-TAM Brew Coffee">
       </a>
-      <div class="nav-links">
-        <a href="#overview" data-nav="overview">Overview</a>
-        <a href="#shot-log" data-nav="shot-log">Shot Log</a>
-        <a href="#analysis" data-nav="analysis">Analysis</a>
-      </div>
-      <div class="live-pill" id="livePill" data-state="connecting" aria-live="polite">
-        <span class="live-dot"></span>
-        <span id="liveStatus">Connecting</span>
-      </div>
-    </nav>
+      <nav class="nav-shell" aria-label="Primary navigation">
+        <div class="nav-links">
+          <a href="#overview" data-nav="overview">Overview</a>
+          <a href="#shot-log" data-nav="shot-log">Shot Log</a>
+          <a href="#analysis" data-nav="analysis">Analysis</a>
+        </div>
+        <div class="live-pill" id="livePill" data-state="connecting" aria-live="polite">
+          <span class="live-dot"></span>
+          <span id="liveStatus">Connecting</span>
+        </div>
+      </nav>
+    </div>
   </header>
 
   <main>

@@ -63,13 +63,21 @@ button { color: inherit; }
   z-index: 20;
   padding: 18px 24px 0;
 }
-.nav-shell {
+.header-layout {
   width: min(var(--max), calc(100vw - 48px));
-  min-height: 64px;
   margin: 0 auto;
-  padding: 10px 12px 10px 18px;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+.nav-shell {
+  width: 100%;
+  min-height: 64px;
+  margin: 0;
+  padding: 10px 12px 10px 22px;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 18px;
   background: rgba(13, 12, 11, 0.78);
@@ -97,7 +105,7 @@ button { color: inherit; }
   font-family: ui-sans-serif, sans-serif;
   color: var(--cream);
 }
-.brand-ut-tam { gap: 0; line-height: 0; }
+.brand-ut-tam { justify-self: center; gap: 0; line-height: 0; }
 .brand-ut-tam img {
   width: 110px;
   height: auto;
@@ -106,7 +114,7 @@ button { color: inherit; }
   transition: transform 180ms ease, filter 180ms ease;
 }
 .brand-ut-tam:hover img { filter: drop-shadow(0 8px 18px rgba(201,155,100,.16)); transform: translateY(-1px) scale(1.015); }
-.nav-links { display: flex; align-items: center; gap: 6px; }
+.nav-links { justify-self: center; display: flex; align-items: center; gap: 6px; }
 .nav-links a {
   padding: 9px 14px;
   border-radius: 999px;
@@ -615,11 +623,12 @@ tbody tr:focus-visible {
 
 @media (max-width: 720px) {
   .site-header { padding: 10px 12px 0; }
-  .nav-shell { width: 100%; grid-template-columns: 1fr auto; padding-left: 13px; }
+  .header-layout { width: 100%; grid-template-columns: auto minmax(0, 1fr); gap: 10px; }
+  .nav-shell { width: 100%; grid-template-columns: 1fr; padding-left: 13px; }
   .brand-ut-tam img { width: 88px; }
   .nav-links { position: fixed; left: 50%; bottom: 12px; z-index: 25; width: min(430px, calc(100vw - 24px)); padding: 7px; justify-content: space-around; border: 1px solid var(--line); border-radius: 16px; background: rgba(13,12,11,.9); box-shadow: 0 16px 50px rgba(0,0,0,.45); backdrop-filter: blur(22px); transform: translateX(-50%); }
   .nav-links a { flex: 1; text-align: center; padding: 10px 5px; }
-  .live-pill { grid-column: 2; grid-row: 1; }
+  .live-pill { grid-column: 1; grid-row: 1; }
   main, footer { width: min(100% - 28px, var(--max)); }
   .hero { min-height: auto; padding: 82px 0 40px; }
   .hero h1 { font-size: clamp(52px, 15vw, 78px); }
