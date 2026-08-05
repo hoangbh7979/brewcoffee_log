@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "brand2";
+const ASSET_VERSION = "mobile3";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -27,9 +27,9 @@ export function renderHomePage(model = {}) {
   <meta name="theme-color" content="#0b0a09">
   <meta name="description" content="A refined realtime shot log for the Casadio Undici espresso machine.">
   <title>BrewLedger — Casadio Shot Log</title>
-  <link rel="icon" type="image/png" sizes="256x256" href="/ut_tam_favicon.png?v=2">
-  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=2">
-  <link rel="apple-touch-icon" href="/ut_tam_favicon.png?v=2">
+  <link rel="icon" type="image/png" sizes="256x256" href="/shotlog_favicon.png?v=3">
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=3">
+  <link rel="apple-touch-icon" href="/shotlog_favicon.png?v=3">
   <link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION}">
 </head>
 <body>
@@ -172,6 +172,7 @@ export function renderHomePage(model = {}) {
           <div class="chart-shell" id="chartShell">
             <div class="trend-chart" id="trendChart" role="img" aria-label="Daily average extraction time chart">${renderTrendChart(analysis, chartMode)}</div>
           </div>
+          <p class="chart-scroll-hint" aria-hidden="true"><span>←</span> Swipe horizontally to explore the chart <span>→</span></p>
         </div>
       </div>
     </section>
