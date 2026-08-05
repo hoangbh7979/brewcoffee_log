@@ -97,6 +97,15 @@ button { color: inherit; }
   font-family: ui-sans-serif, sans-serif;
   color: var(--cream);
 }
+.brand-ut-tam { gap: 0; line-height: 0; }
+.brand-ut-tam img {
+  width: 110px;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 5px 13px rgba(0,0,0,.25));
+  transition: transform 180ms ease, filter 180ms ease;
+}
+.brand-ut-tam:hover img { filter: drop-shadow(0 8px 18px rgba(201,155,100,.16)); transform: translateY(-1px) scale(1.015); }
 .nav-links { display: flex; align-items: center; gap: 6px; }
 .nav-links a {
   padding: 9px 14px;
@@ -607,6 +616,7 @@ tbody tr:focus-visible {
 @media (max-width: 720px) {
   .site-header { padding: 10px 12px 0; }
   .nav-shell { width: 100%; grid-template-columns: 1fr auto; padding-left: 13px; }
+  .brand-ut-tam img { width: 88px; }
   .nav-links { position: fixed; left: 50%; bottom: 12px; z-index: 25; width: min(430px, calc(100vw - 24px)); padding: 7px; justify-content: space-around; border: 1px solid var(--line); border-radius: 16px; background: rgba(13,12,11,.9); box-shadow: 0 16px 50px rgba(0,0,0,.45); backdrop-filter: blur(22px); transform: translateX(-50%); }
   .nav-links a { flex: 1; text-align: center; padding: 10px 5px; }
   .live-pill { grid-column: 2; grid-row: 1; }
@@ -640,6 +650,7 @@ tbody tr:focus-visible {
 
 @media (max-width: 480px) {
   .brand { font-size: 16px; }
+  .brand-ut-tam img { width: 78px; }
   .live-pill { padding: 8px 10px; }
   .live-pill span:last-child { display: none; }
   .hero-copy > p { font-size: 15px; }

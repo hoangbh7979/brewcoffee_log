@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "pagination1";
+const ASSET_VERSION = "brand1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -35,9 +35,8 @@ export function renderHomePage(model = {}) {
 
   <header class="site-header" id="top">
     <nav class="nav-shell" aria-label="Primary navigation">
-      <a class="brand" href="#overview" aria-label="BrewLedger home">
-        <span class="brand-symbol" aria-hidden="true">◒</span>
-        <span>BrewLedger</span>
+      <a class="brand brand-ut-tam" href="#overview" aria-label="UT-TAM Brew Coffee home">
+        <img src="/ut_tam_logo_dark.png" width="110" height="72" alt="UT-TAM Brew Coffee">
       </a>
       <div class="nav-links">
         <a href="#overview" data-nav="overview">Overview</a>
