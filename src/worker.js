@@ -62,6 +62,7 @@ async function routeRequest(request, env) {
       getShotsForDate(env, {
         date: url.searchParams.get("date") || "",
         bucket: url.searchParams.get("bucket") || "all",
+        page: url.searchParams.get("page") || "",
       }),
       getShotAnalysis(env, {
         start: url.searchParams.get("analysis_start") || "",
@@ -115,6 +116,7 @@ async function routeRequest(request, env) {
     const result = await getShotsForDate(env, {
       date: url.searchParams.get("date") || "",
       bucket: url.searchParams.get("bucket") || "all",
+      page: url.searchParams.get("page") || "",
     });
     return json({ ok: true, ...result }, origin, ALLOWED_ORIGIN);
   }

@@ -399,6 +399,42 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .empty-state { height: 190px; text-align: center; color: var(--muted); cursor: default; }
 .loading-row { cursor: default; }
 .loading-line { display: block; height: 10px; border-radius: 999px; background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.1), rgba(255,255,255,.04)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+.pagination-shell {
+  min-height: 76px;
+  padding: 14px 20px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+}
+.pagination-shell.is-empty { justify-content: center; }
+.page-summary { color: var(--dim); font-size: 11px; letter-spacing: .02em; }
+.pagination-controls { display: inline-flex; align-items: center; gap: 8px; }
+.page-numbers { display: inline-flex; align-items: center; gap: 4px; }
+.page-button,
+.page-number,
+.page-ellipsis {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+.page-button,
+.page-number {
+  border: 1px solid transparent;
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), color 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+.page-button { background: rgba(255,255,255,.035); border-color: var(--line); font-size: 19px; }
+.page-button:hover,
+.page-number:hover { color: var(--text); border-color: var(--line-strong); background: rgba(255,255,255,.075); transform: translateY(-2px); }
+.page-button.disabled { color: rgba(181,174,165,.33); cursor: default; opacity: .58; }
+.page-number.active { color: #171513; background: var(--accent); border-color: var(--accent); box-shadow: 0 8px 20px rgba(201,155,100,.22); animation: pagination-pop 260ms ease-out; }
+.page-ellipsis { width: 20px; color: var(--dim); letter-spacing: .08em; }
 .analysis-grid {
   display: grid;
   grid-template-columns: minmax(280px, .82fr) minmax(360px, 1.18fr);
@@ -546,6 +582,7 @@ footer > a:last-child { justify-self: end; }
 @keyframes breathe { 50% { transform: scale(1.04) rotate(2deg); opacity: 1; } }
 @keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(146,183,156,0); } }
 @keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes pagination-pop { from { transform: scale(.78); } to { transform: scale(1); } }
 
 button:focus-visible,
 a:focus-visible,
@@ -594,6 +631,8 @@ tbody tr:focus-visible {
   .table-toolbar { align-items: start; flex-direction: column; }
   .filter-chips { width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 3px; }
   .chip { flex: 0 0 auto; }
+  .pagination-shell { align-items: flex-start; flex-direction: column; }
+  .pagination-controls { width: 100%; justify-content: space-between; }
   .analysis-section { padding-bottom: 80px; }
   footer { margin-bottom: 82px; grid-template-columns: 1fr auto; }
   footer p { display: none; }

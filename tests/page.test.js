@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 
 import { renderHomePage } from "../src/page.js";
 
-test("renderHomePage includes all daily rows, range controls, and an SSR trend chart", async () => {
-  const rows = Array.from({ length: 10 }, (_, index) => ({
+test("renderHomePage includes a paginated daily log, range controls, and an SSR trend chart", async () => {
+  const rows = Array.from({ length: 12 }, (_, index) => ({
     id: String(index),
     created_at: Date.parse("2026-08-05T03:00:00Z") + index * 1000,
     shot_ms: 20_000 + index * 1000,
@@ -15,7 +15,8 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
     nonce: "test-nonce",
     shots: {
       data: rows,
-      total: 10,
+      total: 75,
+      pagination: { page: 2, page_size: 12, page_count: 7 },
       selected_date: "2026-08-05",
       bucket: "all",
       day_summary: { total: 75, consistent: 24, consistency_percent: 32 },
@@ -42,7 +43,7 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   const trendChart = html.match(/<div class="trend-chart" id="trendChart"[^>]*>([\s\S]*?)<\/div>/);
 
   assert.ok(tableBody);
-  assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 10);
+  assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
   assert.match(html, /value="2026-08-05"/);
   assert.match(html, /id="dateForm" method="get"/);
   assert.match(html, /name="date"/);
@@ -51,7 +52,10 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.match(html, /class="date-submit"/);
   assert.match(html, /getElementById\("dateForm"\)/);
   assert.doesNotMatch(html, /id="previousDay"|id="nextDay"/);
-  assert.doesNotMatch(html, /id="pagination"|id="pageSummary"/);
+  assert.match(html, /id="pagination"/);
+  assert.match(html, /id="pageSummary">Showing 13\u201324 of 75 shots/);
+  assert.match(html, /class="page-number active" href="\/?date=2026-08-05&amp;page=2#shot-log" aria-current="page"/);
+  assert.match(html, /href="\/?date=2026-08-05&amp;page=3#shot-log" aria-label="Next page"/);
   assert.match(html, /id="metricSelectedDate">05 Aug</);
   assert.match(html, /id="metricSelectedCount">75 shots</);
   assert.match(html, /id="metricDailyConsistency">32%/);
@@ -61,7 +65,7 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.match(html, /id="analysisDateForm" method="get" action="\/#analysis"/);
   assert.match(html, /name="analysis_start"/);
   assert.match(html, /name="analysis_end"/);
-  assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05&amp;analysis_all=1#analysis"/);
+  assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05&amp;page=2&amp;analysis_all=1#analysis"/);
   assert.match(html, /id="bucketMix"/);
   assert.match(html, /class="donut-chart"/);
   assert.match(html, /class="chart-mode-link active"/);

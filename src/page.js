@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "analysis3";
+const ASSET_VERSION = "pagination1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -121,6 +121,7 @@ export function renderHomePage(model = {}) {
             <tbody id="shotsTable">${rowsHtml}</tbody>
           </table>
         </div>
+        ${renderPagination(shots)}
 
       </div>
     </section>
@@ -132,7 +133,7 @@ export function renderHomePage(model = {}) {
           <h2>Extraction analysis</h2>
           <p>Explore daily averages across any date range stored in D1.</p>
         </div>
-        ${renderAnalysisControls(analysisRange, analysisWindow, selectedDate, selectedBucket, chartMode)}
+        ${renderAnalysisControls(analysisRange, analysisWindow, selectedDate, selectedBucket, chartMode, shots && shots.pagination && shots.pagination.page)}
       </div>
       <script nonce="${scriptNonce}">(()=>{const f=document.getElementById("analysisDateForm");if(f)f.querySelectorAll('input[type="date"]').forEach(i=>i.addEventListener("change",()=>f.requestSubmit?f.requestSubmit():f.submit()));})();</script>
 
@@ -160,7 +161,7 @@ export function renderHomePage(model = {}) {
           <div class="panel-title">
             <div><span>Daily rhythm</span><strong>Average extraction time</strong></div>
             <div class="chart-tools">
-              ${renderChartModeControls(chartMode, selectedDate, selectedBucket, analysisRange)}
+              ${renderChartModeControls(chartMode, selectedDate, selectedBucket, analysisRange, shots && shots.pagination && shots.pagination.page)}
               <span class="target-legend"><i></i> 25s target</span>
             </div>
           </div>
@@ -224,6 +225,55 @@ function renderShotRows(rows) {
   }).join("");
 }
 
+function renderPagination(shots) {
+  const total = Number(shots && shots.total) || 0;
+  const meta = shots && shots.pagination ? shots.pagination : {};
+  const pageSize = Math.max(1, Number(meta.page_size) || 12);
+  const pageCount = Math.max(1, Number(meta.page_count) || Math.ceil(total / pageSize) || 1);
+  const page = Math.min(pageCount, Math.max(1, Number(meta.page) || 1));
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
+  const summary = total === 0
+    ? "No shots on this day"
+    : `Showing ${start}\u2013${end} of ${total} shots`;
+  if (total === 0 || pageCount === 1) {
+    return `<div class="pagination-shell${total === 0 ? " is-empty" : ""}" id="pagination"><span class="page-summary" id="pageSummary">${summary}</span></div>`;
+  }
+
+  const hrefFor = (targetPage) => {
+    const params = new URLSearchParams();
+    params.set("date", shots.selected_date || "");
+    if (shots.bucket && shots.bucket !== "all") params.set("bucket", shots.bucket);
+    if (targetPage > 1) params.set("page", String(targetPage));
+    return `/${params.toString() ? `?${params.toString()}` : ""}#shot-log`;
+  };
+  const control = (targetPage, label, direction) => targetPage < 1 || targetPage > pageCount
+    ? `<span class="page-button disabled" aria-disabled="true"><span aria-hidden="true">${label}</span><span class="sr-only">${direction} page</span></span>`
+    : `<a class="page-button" href="${escapeHtml(hrefFor(targetPage))}" aria-label="${direction} page"><span aria-hidden="true">${label}</span></a>`;
+  const pages = paginationItems(page, pageCount).map((item) => item === "ellipsis"
+    ? '<span class="page-ellipsis" aria-hidden="true">\u2026</span>'
+    : `<a class="page-number${item === page ? " active" : ""}" href="${escapeHtml(hrefFor(item))}"${item === page ? ' aria-current="page"' : ""}>${item}</a>`
+  ).join("");
+  return `<nav class="pagination-shell" id="pagination" aria-label="Shot log pages">
+    <span class="page-summary" id="pageSummary">${summary}</span>
+    <div class="pagination-controls">
+      ${control(page - 1, "‹", "Previous")}
+      <span class="page-numbers">${pages}</span>
+      ${control(page + 1, "›", "Next")}
+    </div>
+  </nav>`;
+}
+
+function paginationItems(page, pageCount) {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+  const visible = page <= 4
+    ? [1, 2, 3, 4, 5, "ellipsis", pageCount]
+    : page >= pageCount - 3
+      ? [1, "ellipsis", pageCount - 4, pageCount - 3, pageCount - 2, pageCount - 1, pageCount]
+      : [1, "ellipsis", page - 1, page, page + 1, "ellipsis", pageCount];
+  return visible;
+}
+
 function renderDateControls(selectedDate, dateWindow, bucket) {
   const window = dateWindow || { min_date: selectedDate, max_date: selectedDate };
   const previous = shiftDateText(selectedDate, -1);
@@ -246,18 +296,20 @@ function renderDateControls(selectedDate, dateWindow, bucket) {
   </form>`;
 }
 
-function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMode = "daily") {
+function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMode = "daily", selectedPage = 1) {
   const safeRange = range || { start_date: "", end_date: "" };
   const safeWindow = dateWindow || { min_date: "", max_date: "" };
   const resetParams = new URLSearchParams();
   if (selectedDate) resetParams.set("date", selectedDate);
   if (bucket && bucket !== "all") resetParams.set("bucket", bucket);
+  if (Number(selectedPage) > 1) resetParams.set("page", String(selectedPage));
   resetParams.set("analysis_all", "1");
   if (chartMode === "shots") resetParams.set("view", "shots");
   const resetHref = "/" + (resetParams.toString() ? "?" + resetParams.toString() : "") + "#analysis";
   return `<form class="analysis-date-controls" id="analysisDateForm" method="get" action="/#analysis">
     <input type="hidden" name="date" value="${escapeHtml(selectedDate)}">
     <input type="hidden" name="bucket" value="${escapeHtml(bucket || "all")}">
+    <input type="hidden" name="page" value="${escapeHtml(Number(selectedPage) > 1 ? String(selectedPage) : "")}">
     <input type="hidden" name="view" value="${escapeHtml(chartMode)}">
     <label><span>From</span><input id="analysisStart" name="analysis_start" type="date" value="${escapeHtml(safeRange.start_date)}" min="${escapeHtml(safeWindow.min_date)}" max="${escapeHtml(safeWindow.max_date)}" required></label>
     <span class="range-arrow" aria-hidden="true">→</span>
@@ -267,12 +319,13 @@ function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMo
   </form>`;
 }
 
-function renderChartModeControls(chartMode, selectedDate, bucket, range) {
+function renderChartModeControls(chartMode, selectedDate, bucket, range, selectedPage = 1) {
   const safeRange = range || { start_date: "", end_date: "" };
   const hrefFor = (view) => {
     const params = new URLSearchParams();
     if (selectedDate) params.set("date", selectedDate);
     if (bucket && bucket !== "all") params.set("bucket", bucket);
+    if (Number(selectedPage) > 1) params.set("page", String(selectedPage));
     if (safeRange.start_date) params.set("analysis_start", safeRange.start_date);
     if (safeRange.end_date) params.set("analysis_end", safeRange.end_date);
     if (view === "shots") params.set("view", "shots");

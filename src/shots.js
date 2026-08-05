@@ -6,6 +6,7 @@ import { clampInt } from "./format.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SHOT_COLUMNS = "id, created_at, shot_ms, brew_counter, avg_ms";
+export const SHOT_LOG_PAGE_SIZE = 12;
 
 export function bangkokDate(ms = Date.now()) {
   const shifted = new Date(ms + 7 * 60 * 60 * 1000);
@@ -93,12 +94,13 @@ export async function getShotsForDate(env, options = {}) {
   const bounds = await getShotBounds(env, now);
   const bucket = normalizeBucket(options.bucket);
   const bucketCondition = bucketSql(bucket);
+  const requestedPage = clampInt(options.page, 1, 10_000, 1);
   const selectedDate = isDateWithinBounds(options.date, bounds)
     ? options.date
     : bounds.maxDate;
   const selectedRange = dateRangeForBangkokDay(selectedDate);
 
-  const [daySummary, rowsResult] = await Promise.all([
+  const [daySummary, countResult] = await Promise.all([
     env.DB.prepare(
       `SELECT COUNT(*) AS total,
               COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
@@ -106,21 +108,37 @@ export async function getShotsForDate(env, options = {}) {
        WHERE created_at >= ? AND created_at < ?`
     ).bind(selectedRange.start, selectedRange.end).first(),
     env.DB.prepare(
-      `SELECT ${SHOT_COLUMNS}
+      `SELECT COUNT(*) AS total
        FROM shots
-       WHERE created_at >= ? AND created_at < ?${bucketCondition}
-       ORDER BY created_at DESC, brew_counter DESC, id DESC`
-    ).bind(selectedRange.start, selectedRange.end).all(),
+       WHERE created_at >= ? AND created_at < ?${bucketCondition}`
+    ).bind(selectedRange.start, selectedRange.end).first(),
   ]);
+
+  const total = Number(countResult && countResult.total) || 0;
+  const pageCount = Math.max(1, Math.ceil(total / SHOT_LOG_PAGE_SIZE));
+  const page = Math.min(requestedPage, pageCount);
+  const offset = (page - 1) * SHOT_LOG_PAGE_SIZE;
+  const rowsResult = await env.DB.prepare(
+    `SELECT ${SHOT_COLUMNS}
+     FROM shots
+     WHERE created_at >= ? AND created_at < ?${bucketCondition}
+     ORDER BY created_at DESC, brew_counter DESC, id DESC
+     LIMIT ? OFFSET ?`
+  ).bind(selectedRange.start, selectedRange.end, SHOT_LOG_PAGE_SIZE, offset).all();
 
   const rows = rowsResult.results || [];
   const dayTotal = Number(daySummary && daySummary.total) || 0;
   const consistent = Number(daySummary && daySummary.consistent) || 0;
   return {
     data: rows,
-    total: rows.length,
+    total,
     selected_date: selectedDate,
     bucket,
+    pagination: {
+      page,
+      page_size: SHOT_LOG_PAGE_SIZE,
+      page_count: pageCount,
+    },
     day_summary: {
       total: dayTotal,
       consistent,

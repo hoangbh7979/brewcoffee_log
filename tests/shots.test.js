@@ -70,12 +70,13 @@ test("analysis opens the current Bangkok day even when its latest D1 record is o
   assert.deepEqual(result.window, { min_date: "2026-01-10", max_date: "2026-10-10" });
 });
 
-test("getShotsForDate returns every matching row without pagination", async () => {
+test("getShotsForDate limits results to 12 rows and returns pagination metadata", async () => {
   const queryLog = [];
-  const rows = [
-    { id: "1", created_at: Date.parse("2026-07-01T01:00:00Z"), shot_ms: 21_000 },
-    { id: "2", created_at: Date.parse("2026-07-01T02:00:00Z"), shot_ms: 24_000 },
-  ];
+  const rows = Array.from({ length: 12 }, (_, index) => ({
+    id: String(index + 1),
+    created_at: Date.parse("2026-07-01T01:00:00Z") + index * 1000,
+    shot_ms: 21_000 + index * 100,
+  }));
   const env = mockEnv((sql, bindings, method) => {
     queryLog.push({ sql, bindings, method });
     if (sql.includes("MIN(created_at)")) {
@@ -84,7 +85,8 @@ test("getShotsForDate returns every matching row without pagination", async () =
         max_created_at: Date.parse("2026-08-05T16:59:00Z"),
       };
     }
-    if (sql.includes("COUNT(*) AS total")) return { total: 5, consistent: 2 };
+    if (sql.includes("COUNT(CASE WHEN shot_ms >= 24000")) return { total: 31, consistent: 12 };
+    if (sql.trim().startsWith("SELECT COUNT(*) AS total")) return { total: 25 };
     if (sql.includes("SELECT id, created_at")) return { results: rows };
     throw new Error(`Unexpected query: ${sql}`);
   });
@@ -92,18 +94,21 @@ test("getShotsForDate returns every matching row without pagination", async () =
   const result = await getShotsForDate(env, {
     date: "2026-07-01",
     bucket: "20to25",
+    page: 2,
     now: NOW,
   });
 
   assert.deepEqual(result.data, rows);
-  assert.equal(result.total, 2);
-  assert.equal(result.day_summary.total, 5);
-  assert.equal(result.day_summary.consistency_percent, 40);
+  assert.equal(result.total, 25);
+  assert.deepEqual(result.pagination, { page: 2, page_size: 12, page_count: 3 });
+  assert.equal(result.day_summary.total, 31);
+  assert.equal(result.day_summary.consistency_percent, 39);
   assert.deepEqual(result.window, { min_date: "2026-07-01", max_date: "2026-08-05" });
   const rowQuery = queryLog.find((entry) => entry.sql.includes("SELECT id, created_at"));
-  const summaryQuery = queryLog.find((entry) => entry.sql.includes("COUNT(*) AS total"));
+  const summaryQuery = queryLog.find((entry) => entry.sql.includes("COUNT(CASE WHEN shot_ms >= 24000"));
   assert.match(rowQuery.sql, /shot_ms >= 20000 AND shot_ms < 25000/);
-  assert.doesNotMatch(rowQuery.sql, /LIMIT|OFFSET/);
+  assert.match(rowQuery.sql, /LIMIT \? OFFSET \?/);
+  assert.deepEqual(rowQuery.bindings.slice(-2), [12, 12]);
   assert.match(summaryQuery.sql, /shot_ms >= 24000 AND shot_ms <= 27000/);
 });
 

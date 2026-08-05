@@ -15,6 +15,8 @@ function clientApp() {
     filter: "all",
     rows: [],
     total: 0,
+    page: 1,
+    pagination: { page: 1, page_size: 12, page_count: 1 },
     daySummary: { total: 0, consistent: 0, consistency_percent: 0 },
     analysis: { total: 0, average_ms: 0, buckets: {}, daily: [] },
     window: { min_date: "", max_date: "" },
@@ -28,6 +30,7 @@ function clientApp() {
     table: document.getElementById("shotsTable"),
     date: document.getElementById("dateInput"),
     resultCount: document.getElementById("resultCount"),
+    pagination: document.getElementById("pagination"),
     filterChips: document.getElementById("filterChips"),
     distribution: document.getElementById("distributionList"),
     distributionTotal: document.getElementById("distributionTotal"),
@@ -149,6 +152,8 @@ function clientApp() {
       if (!initial.shots || !initial.analysis) return false;
       state.rows = Array.isArray(initial.shots.data) ? initial.shots.data : [];
       state.total = Number(initial.shots.total) || 0;
+      state.pagination = normalizePagination(initial.shots.pagination, state.total);
+      state.page = state.pagination.page;
       state.daySummary = initial.shots.day_summary || state.daySummary;
       state.date = initial.shots.selected_date || "";
       state.filter = initial.shots.bucket || "all";
@@ -176,12 +181,15 @@ function clientApp() {
     const params = new URLSearchParams();
     if (state.date) params.set("date", state.date);
     if (state.filter !== "all") params.set("bucket", state.filter);
+    if (state.page > 1) params.set("page", String(state.page));
 
     try {
       const body = await apiJson("/api/shots?" + params.toString());
       if (requestId !== shotsRequest) return;
       state.rows = Array.isArray(body.data) ? body.data : [];
       state.total = Number(body.total) || 0;
+      state.pagination = normalizePagination(body.pagination, state.total);
+      state.page = state.pagination.page;
       state.daySummary = body.day_summary || state.daySummary;
       state.date = body.selected_date || state.date;
       state.window = body.window || state.window;
@@ -258,6 +266,56 @@ function clientApp() {
 
     const filterText = state.filter === "all" ? "shots" : bucketInfo(state.filter).label + " shots";
     elements.resultCount.textContent = state.total + " " + filterText;
+    renderPagination();
+  }
+
+  function normalizePagination(value, total) {
+    const pageSize = Math.max(1, Number(value && value.page_size) || 12);
+    const pageCount = Math.max(1, Number(value && value.page_count) || Math.ceil(total / pageSize) || 1);
+    const page = Math.min(pageCount, Math.max(1, Number(value && value.page) || 1));
+    return { page, page_size: pageSize, page_count: pageCount };
+  }
+
+  function paginationItems(page, pageCount) {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+    if (page <= 4) return [1, 2, 3, 4, 5, "ellipsis", pageCount];
+    if (page >= pageCount - 3) return [1, "ellipsis", pageCount - 4, pageCount - 3, pageCount - 2, pageCount - 1, pageCount];
+    return [1, "ellipsis", page - 1, page, page + 1, "ellipsis", pageCount];
+  }
+
+  function paginationHref(targetPage) {
+    const params = new URLSearchParams();
+    if (state.date) params.set("date", state.date);
+    if (state.filter !== "all") params.set("bucket", state.filter);
+    if (targetPage > 1) params.set("page", String(targetPage));
+    return "/" + (params.toString() ? "?" + params.toString() : "") + "#shot-log";
+  }
+
+  function renderPagination() {
+    if (!elements.pagination) return;
+    const total = state.total;
+    const meta = normalizePagination(state.pagination, total);
+    const page = meta.page;
+    const pageCount = meta.page_count;
+    const start = total === 0 ? 0 : (page - 1) * meta.page_size + 1;
+    const end = Math.min(total, page * meta.page_size);
+    const summary = total === 0 ? "No shots on this day" : "Showing " + start + "–" + end + " of " + total + " shots";
+    if (total === 0 || pageCount === 1) {
+      elements.pagination.className = "pagination-shell" + (total === 0 ? " is-empty" : "");
+      elements.pagination.innerHTML = '<span class="page-summary" id="pageSummary">' + summary + "</span>";
+      return;
+    }
+    const control = (targetPage, label, direction) => targetPage < 1 || targetPage > pageCount
+      ? '<span class="page-button disabled" aria-disabled="true"><span aria-hidden="true">' + label + '</span><span class="sr-only">' + direction + " page</span></span>"
+      : '<a class="page-button" href="' + escapeHtml(paginationHref(targetPage)) + '" aria-label="' + direction + ' page"><span aria-hidden="true">' + label + "</span></a>";
+    const pages = paginationItems(page, pageCount).map((item) => item === "ellipsis"
+      ? '<span class="page-ellipsis" aria-hidden="true">…</span>'
+      : '<a class="page-number' + (item === page ? " active" : "") + '" href="' + escapeHtml(paginationHref(item)) + '"' + (item === page ? ' aria-current="page"' : "") + ">" + item + "</a>"
+    ).join("");
+    elements.pagination.className = "pagination-shell";
+    elements.pagination.setAttribute("aria-label", "Shot log pages");
+    elements.pagination.innerHTML = '<span class="page-summary" id="pageSummary">' + summary + '</span><div class="pagination-controls">' +
+      control(page - 1, "‹", "Previous") + '<span class="page-numbers">' + pages + "</span>" + control(page + 1, "›", "Next") + "</div>";
   }
 
   function syncDateControls() {
@@ -289,7 +347,8 @@ function clientApp() {
     url.searchParams.set("date", state.date);
     if (state.filter === "all") url.searchParams.delete("bucket");
     else url.searchParams.set("bucket", state.filter);
-    url.searchParams.delete("page");
+    if (state.page > 1) url.searchParams.set("page", String(state.page));
+    else url.searchParams.delete("page");
     history.replaceState(null, "", url.pathname + "?" + url.searchParams.toString() + url.hash);
   }
 
