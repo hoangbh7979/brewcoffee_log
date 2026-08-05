@@ -30,6 +30,7 @@ function clientApp() {
     filterChips: document.getElementById("filterChips"),
     distribution: document.getElementById("distributionList"),
     distributionTotal: document.getElementById("distributionTotal"),
+    bucketMix: document.getElementById("bucketMix"),
     chart: document.getElementById("trendChart"),
     analysisStart: document.getElementById("analysisStart"),
     analysisEnd: document.getElementById("analysisEnd"),
@@ -318,6 +319,7 @@ function clientApp() {
         "</a>";
     }).join("");
     elements.analysisPeriod.textContent = analysisPeriodText(analysis);
+    elements.bucketMix.innerHTML = bucketMixMarkup(analysis);
     elements.chart.innerHTML = trendChartMarkup(analysis);
   }
 
@@ -328,6 +330,31 @@ function clientApp() {
     const allHistory = range.start_date === window.min_date && range.end_date === window.max_date;
     const label = allHistory ? "All history" : "Selected range";
     return label + " · " + formatDateLabel(range.start_date) + " → " + formatDateLabel(range.end_date) + " · " + (Number(analysis.total) || 0) + " shots · " + (Number(analysis.consistency_percent) || 0) + "% consistent at 24–27s";
+  }
+
+  function bucketMixMarkup(analysis) {
+    const buckets = analysis && analysis.buckets ? analysis.buckets : {};
+    const total = analysis ? Number(analysis.total) || 0 : 0;
+    const radius = 74;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+    const segments = BUCKETS.map((bucket) => {
+      const count = Number(buckets[bucket.key]) || 0;
+      const length = total > 0 ? count / total * circumference : 0;
+      const segment = '<circle class="donut-segment" cx="120" cy="120" r="' + radius + '" stroke="' + bucket.color + '" stroke-dasharray="' + length.toFixed(2) + ' ' + (circumference - length).toFixed(2) + '" stroke-dashoffset="' + (-offset).toFixed(2) + '"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots</title></circle>';
+      offset += length;
+      return { bucket, count, segment };
+    });
+    const legend = segments.map(({ bucket, count }) => {
+      const percent = total > 0 ? Math.round(count * 100 / total) : 0;
+      return '<div class="donut-legend-row"><span><i style="background:' + bucket.color + '"></i>' + escapeHtml(bucket.label) + '</span><strong>' + percent + '%</strong></div>';
+    }).join("");
+    return '<div class="donut-shell"><svg class="donut-chart" viewBox="0 0 240 240" role="img" aria-label="Shot distribution by extraction time">' +
+      '<circle class="donut-track" cx="120" cy="120" r="' + radius + '"></circle>' +
+      '<g transform="rotate(-90 120 120)">' + segments.map(({ segment }) => segment).join("") + '</g>' +
+      '<text class="donut-total" x="120" y="116" text-anchor="middle">' + total + '</text>' +
+      '<text class="donut-caption" x="120" y="139" text-anchor="middle">shots</text></svg></div>' +
+      '<div class="donut-legend">' + legend + '</div>';
   }
 
   function trendChartMarkup(analysis) {
@@ -491,9 +518,6 @@ function clientApp() {
     loadShots({ silent: true });
     loadAnalysis({ silent: true });
   }
-  elements.analysisStart.addEventListener("change", () => changeAnalysisRange("start_date", elements.analysisStart.value));
-  elements.analysisEnd.addEventListener("change", () => changeAnalysisRange("end_date", elements.analysisEnd.value));
-  elements.analysisAll.addEventListener("click", showAllAnalysis);
   elements.table.addEventListener("click", (event) => {
     const row = event.target.closest("[data-row-index]");
     if (row) openShot(Number(row.dataset.rowIndex));

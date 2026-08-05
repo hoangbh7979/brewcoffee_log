@@ -130,13 +130,9 @@ export function renderHomePage(model = {}) {
           <h2>Extraction analysis</h2>
           <p>Explore daily averages across any date range stored in D1.</p>
         </div>
-        <div class="analysis-date-controls" aria-label="Analysis date range">
-          <label><span>From</span><input id="analysisStart" type="date" value="${analysisRange.start_date}" min="${analysisWindow.min_date}" max="${analysisWindow.max_date}"></label>
-          <span class="range-arrow" aria-hidden="true">→</span>
-          <label><span>To</span><input id="analysisEnd" type="date" value="${analysisRange.end_date}" min="${analysisWindow.min_date}" max="${analysisWindow.max_date}"></label>
-          <button class="icon-button" id="analysisAll" type="button" aria-label="Show all history" title="Show all history">↺</button>
-        </div>
+        ${renderAnalysisControls(analysisRange, analysisWindow, selectedDate, selectedBucket)}
       </div>
+      <script nonce="${scriptNonce}">(()=>{const f=document.getElementById("analysisDateForm");if(f)f.querySelectorAll('input[type="date"]').forEach(i=>i.addEventListener("change",()=>f.requestSubmit?f.requestSubmit():f.submit()));})();</script>
 
       <p class="analysis-period" id="analysisPeriod">${renderAnalysisPeriod(analysis)}</p>
 
@@ -148,6 +144,14 @@ export function renderHomePage(model = {}) {
           </div>
           <div class="distribution-list" id="distributionList">${renderDistribution(analysis, selectedDate)}</div>
           <p class="interaction-hint">Select a range to filter the currently selected day.</p>
+        </div>
+
+        <div class="panel mix-panel reveal">
+          <div class="panel-title">
+            <div><span>Bucket mix</span><strong>Share by extraction time</strong></div>
+            <span class="panel-symbol">◔</span>
+          </div>
+          <div class="bucket-mix" id="bucketMix">${renderBucketMix(analysis)}</div>
         </div>
 
         <div class="panel trend-panel reveal">
@@ -237,6 +241,24 @@ function renderDateControls(selectedDate, dateWindow, bucket) {
   </form>`;
 }
 
+function renderAnalysisControls(range, dateWindow, selectedDate, bucket) {
+  const safeRange = range || { start_date: "", end_date: "" };
+  const safeWindow = dateWindow || { min_date: "", max_date: "" };
+  const resetParams = new URLSearchParams();
+  if (selectedDate) resetParams.set("date", selectedDate);
+  if (bucket && bucket !== "all") resetParams.set("bucket", bucket);
+  const resetHref = "/" + (resetParams.toString() ? "?" + resetParams.toString() : "") + "#analysis";
+  return `<form class="analysis-date-controls" id="analysisDateForm" method="get" action="/#analysis">
+    <input type="hidden" name="date" value="${escapeHtml(selectedDate)}">
+    <input type="hidden" name="bucket" value="${escapeHtml(bucket || "all")}">
+    <label><span>From</span><input id="analysisStart" name="analysis_start" type="date" value="${escapeHtml(safeRange.start_date)}" min="${escapeHtml(safeWindow.min_date)}" max="${escapeHtml(safeWindow.max_date)}" required></label>
+    <span class="range-arrow" aria-hidden="true">→</span>
+    <label><span>To</span><input id="analysisEnd" name="analysis_end" type="date" value="${escapeHtml(safeRange.end_date)}" min="${escapeHtml(safeWindow.min_date)}" max="${escapeHtml(safeWindow.max_date)}" required></label>
+    <button class="icon-button date-submit" type="submit" aria-label="Apply analysis date range" title="Apply analysis date range">↵</button>
+    <a class="icon-button" id="analysisAll" href="${escapeHtml(resetHref)}" aria-label="Show all history" title="Show all history">↺</a>
+  </form>`;
+}
+
 function shiftDateText(dateText, days) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateText || ""))) return "";
   const [year, month, day] = dateText.split("-").map(Number);
@@ -278,6 +300,40 @@ function renderDistribution(analysis, selectedDate) {
       <strong class="distribution-value">${count}</strong>
     </a>`;
   }).join("");
+}
+
+function renderBucketMix(analysis) {
+  const buckets = analysis && analysis.buckets ? analysis.buckets : {};
+  const total = analysis ? Number(analysis.total) || 0 : 0;
+  const radius = 74;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+  const segments = [
+    ["under20", "<20s", "#899eb7"],
+    ["20to25", "20–25s", "#b49f82"],
+    ["25to28", "25–28s", "#92b79c"],
+    ["28to30", "28–30s", "#c99b64"],
+    ["over30", ">30s", "#d08c7d"],
+  ].map(([key, label, color]) => {
+    const count = Number(buckets[key]) || 0;
+    const length = total > 0 ? count / total * circumference : 0;
+    const segment = `<circle class="donut-segment" cx="120" cy="120" r="${radius}" stroke="${color}" stroke-dasharray="${length.toFixed(2)} ${(circumference - length).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}"><title>${escapeHtml(label)} · ${count} shots</title></circle>`;
+    offset += length;
+    return { key, label, color, count, segment };
+  });
+  const legend = segments.map(({ label, color, count }) => {
+    const percent = total > 0 ? Math.round(count * 100 / total) : 0;
+    return `<div class="donut-legend-row"><span><i style="background:${color}"></i>${escapeHtml(label)}</span><strong>${percent}%</strong></div>`;
+  }).join("");
+  return `<div class="donut-shell">
+    <svg class="donut-chart" viewBox="0 0 240 240" role="img" aria-label="Shot distribution by extraction time">
+      <circle class="donut-track" cx="120" cy="120" r="${radius}"></circle>
+      <g transform="rotate(-90 120 120)">${segments.map(({ segment }) => segment).join("")}</g>
+      <text class="donut-total" x="120" y="116" text-anchor="middle">${total}</text>
+      <text class="donut-caption" x="120" y="139" text-anchor="middle">shots</text>
+    </svg>
+  </div>
+  <div class="donut-legend">${legend}</div>`;
 }
 
 function renderAnalysisPeriod(analysis) {

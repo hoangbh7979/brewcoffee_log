@@ -58,6 +58,13 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.match(html, /id="heroConsistency">32%/);
   assert.match(html, /id="analysisStart"[^>]*value="2026-01-10"/);
   assert.match(html, /id="analysisEnd"[^>]*value="2026-08-05"/);
+  assert.match(html, /id="analysisDateForm" method="get" action="\/#analysis"/);
+  assert.match(html, /name="analysis_start"/);
+  assert.match(html, /name="analysis_end"/);
+  assert.match(html, /id="analysisAll"[^>]*href="\/?date=2026-08-05#analysis"/);
+  assert.match(html, /id="bucketMix"/);
+  assert.match(html, /class="donut-chart"/);
+  assert.match(html, /<circle class="donut-segment"[^>]*stroke="#899eb7"/);
   assert.ok(trendChart);
   assert.match(trendChart[1], /<svg /);
   assert.match(trendChart[1], /class="trend-line"/);
