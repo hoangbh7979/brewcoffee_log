@@ -86,6 +86,14 @@ function clientApp() {
     return parts.length === 3 ? parts[2] + "/" + parts[1] + "/" + parts[0] : dateText;
   }
 
+  function formatDateCompact(dateText) {
+    if (!dateText) return "—";
+    const parts = dateText.split("-");
+    if (parts.length !== 3) return dateText;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return parts[2] + " " + (months[Number(parts[1]) - 1] || parts[1]);
+  }
+
   function shotDate(ms) {
     const value = Number(ms);
     if (!Number.isFinite(value)) return "";
@@ -285,7 +293,8 @@ function clientApp() {
   }
 
   function updateSelectedMetrics() {
-    document.getElementById("metricSelected").textContent = String(Number(state.daySummary.total) || 0);
+    document.getElementById("metricSelectedDate").textContent = formatDateCompact(state.date);
+    document.getElementById("metricSelectedCount").textContent = (Number(state.daySummary.total) || 0) + " shots";
     document.getElementById("metricDailyConsistency").textContent = (Number(state.daySummary.consistency_percent) || 0) + "%";
     const latest = state.rows[0];
     document.getElementById("heroLatest").textContent = latest ? formatShot(latest.shot_ms) : "--.--s";
@@ -395,8 +404,10 @@ function clientApp() {
   }
 
   function changeDate(date) {
-    if (!date || date < state.window.min_date || date > state.window.max_date) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
     state.date = date;
+    document.getElementById("metricSelectedDate").textContent = formatDateCompact(date);
+    document.getElementById("metricSelectedCount").textContent = "Loading…";
     loadShots();
   }
 

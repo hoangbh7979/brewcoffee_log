@@ -267,6 +267,7 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 .hero-metrics article:last-child { border-right: 0; }
 .hero-metrics span { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .09em; }
 .hero-metrics strong { font: 400 26px/1.2 Georgia, serif; }
+.hero-metrics small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
 
 .log-section,
 .analysis-section { padding: 120px 0 30px; }

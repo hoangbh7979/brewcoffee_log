@@ -80,7 +80,7 @@ export function renderHomePage(model = {}) {
       <div class="hero-metrics reveal">
         <article><span>Total / analysis range</span><strong id="metricTotal">${analysisTotal}</strong></article>
         <article><span>Average time</span><strong id="metricAverage">${analysisAverage}</strong></article>
-        <article><span>Selected day</span><strong id="metricSelected">${Number(daySummary.total) || 0}</strong></article>
+        <article><span>Selected date</span><strong id="metricSelectedDate">${formatDateCompact(selectedDate)}</strong><small id="metricSelectedCount">${Number(daySummary.total) || 0} shots</small></article>
         <article><span>Daily consistency</span><strong id="metricDailyConsistency">${Number(daySummary.consistency_percent) || 0}%</strong></article>
       </div>
     </section>
@@ -359,6 +359,14 @@ function formatDateLabel(dateText) {
   if (!dateText) return "—";
   const parts = dateText.split("-");
   return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateText;
+}
+
+function formatDateCompact(dateText) {
+  if (!dateText) return "—";
+  const parts = dateText.split("-");
+  if (parts.length !== 3) return dateText;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${parts[2]} ${months[Number(parts[1]) - 1] || parts[1]}`;
 }
 
 function escapeHtml(value) {

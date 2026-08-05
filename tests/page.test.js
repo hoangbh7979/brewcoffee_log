@@ -45,7 +45,8 @@ test("renderHomePage includes all daily rows, range controls, and an SSR trend c
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 10);
   assert.match(html, /value="2026-08-05"/);
   assert.doesNotMatch(html, /id="pagination"|id="pageSummary"/);
-  assert.match(html, /id="metricSelected">75</);
+  assert.match(html, /id="metricSelectedDate">05 Aug</);
+  assert.match(html, /id="metricSelectedCount">75 shots</);
   assert.match(html, /id="metricDailyConsistency">32%/);
   assert.match(html, /id="heroConsistency">32%/);
   assert.match(html, /id="analysisStart"[^>]*value="2026-01-10"/);
