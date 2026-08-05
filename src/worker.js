@@ -57,7 +57,17 @@ async function routeRequest(request, env) {
 
   if (url.pathname === "/") {
     if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
-    return withSecurityHeaders(renderHomePage());
+    if (!env.DB) return new Response("DB not bound", { status: 500 });
+    const [shots, analysis] = await Promise.all([
+      getShotsPage(env, {
+        date: url.searchParams.get("date") || "",
+        page: url.searchParams.get("page"),
+        pageSize: 10,
+        bucket: url.searchParams.get("bucket") || "all",
+      }),
+      getShotAnalysis(env),
+    ]);
+    return withSecurityHeaders(renderHomePage({ shots, analysis }));
   }
 
   if (url.pathname === "/api/ws") {

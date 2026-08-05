@@ -131,6 +131,30 @@ function clientApp() {
     return body;
   }
 
+  function hydrateInitialState() {
+    const template = document.getElementById("initialState");
+    if (!template) return false;
+    try {
+      const source = template.content ? template.content.textContent : template.textContent;
+      const initial = JSON.parse(source || "{}");
+      if (!initial.shots || !initial.analysis) return false;
+      state.rows = Array.isArray(initial.shots.data) ? initial.shots.data : [];
+      state.pagination = initial.shots.pagination || state.pagination;
+      state.date = initial.shots.selected_date || "";
+      state.filter = initial.shots.bucket || "all";
+      state.window = initial.shots.window || state.window;
+      state.analysis = initial.analysis;
+      syncDateControls();
+      renderShots();
+      updateSelectedMetrics();
+      renderAnalysis();
+      renderHeroMetrics();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function loadShots(options = {}) {
     const requestId = ++shotsRequest;
     if (!options.silent) renderLoading();
@@ -154,7 +178,7 @@ function clientApp() {
       updateSelectedMetrics();
     } catch (error) {
       if (requestId !== shotsRequest) return;
-      renderTableError();
+      if (!options.silent) renderTableError();
       showToast("Could not load the shot log. Retrying shortly.");
     }
   }
@@ -509,6 +533,12 @@ function clientApp() {
     };
   }
 
+  if (!hydrateInitialState()) {
+    loadShots({ silent: true });
+    loadAnalysis({ silent: true });
+  }
+  connectSocket();
+
   elements.date.addEventListener("change", () => changeDate(elements.date.value));
   elements.previousDay.addEventListener("click", () => shiftDate(-1));
   elements.nextDay.addEventListener("click", () => shiftDate(1));
@@ -575,8 +605,6 @@ function clientApp() {
   });
   window.addEventListener("online", connectSocket);
 
-  Promise.all([loadShots(), loadAnalysis()]);
-  connectSocket();
 }
 
 export const CLIENT_SCRIPT = `(${clientApp.toString()})();`;
