@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { clampInt, formatShot, num, pad2 } from "../src/format.js";
+import { classifyShotMs, clampInt, formatShot, num, pad2 } from "../src/format.js";
 
 test("num returns finite numbers and rejects invalid input", () => {
   assert.equal(num("25.5"), 25.5);
@@ -25,4 +25,13 @@ test("formatShot formats milliseconds without rounding up", () => {
 test("pad2 pads single-digit values", () => {
   assert.equal(pad2(7), "07");
   assert.equal(pad2(12), "12");
+});
+
+test("classifyShotMs covers all analysis ranges", () => {
+  assert.equal(classifyShotMs(19_999), "under20");
+  assert.equal(classifyShotMs(20_000), "20to25");
+  assert.equal(classifyShotMs(25_000), "25to28");
+  assert.equal(classifyShotMs(28_000), "28to30");
+  assert.equal(classifyShotMs(30_000), "28to30");
+  assert.equal(classifyShotMs(30_001), "over30");
 });

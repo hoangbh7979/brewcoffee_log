@@ -7,9 +7,12 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "dev": "wrangler dev",
     "check:syntax": "node scripts/check-syntax.mjs",
     "test": "node --test",
     "check:worker": "wrangler deploy --dry-run",
+    "db:migrate:local": "wrangler d1 migrations apply shotlog --local",
+    "db:migrate:remote": "wrangler d1 migrations apply shotlog --remote",
     "ci": "npm run check:syntax && npm test && npm run check:worker"
   },
   "devDependencies": {

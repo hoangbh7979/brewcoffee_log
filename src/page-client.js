@@ -1,896 +1,582 @@
-export const CLIENT_SCRIPT = `
-          const MAX_ROWS = 500;
-          const MAX_POINTS = 500;
-          const TARGET_TIME_SEC = 25;
-          const DAY_TIME_MAX_HOUR = 23 + (59 / 60);
-          const CHART_RESYNC_DEBOUNCE_MS = 1500;
-          const seen = new Set();
-          const statusEl = document.getElementById('status');
-          const brewEl = document.getElementById('brewCounter');
-          const avgEl = document.getElementById('avgBrew');
-          const mainView = document.getElementById('mainView');
-          const analysisView = document.getElementById('analysisView');
-          const analysisBtn = document.getElementById('analysisBtn');
-          const chartCanvas = document.getElementById('chart');
-          const chartAxisCanvas = document.getElementById('chartAxis');
-          const chartScroll = document.getElementById('chartScroll');
-          const dayTimeChartCanvas = document.getElementById('dayTimeChart');
-          const dayTimeChartAxisCanvas = document.getElementById('dayTimeChartAxis');
-          const dayTimeChartScroll = document.getElementById('dayTimeChartScroll');
-          let chartCtx = chartCanvas ? chartCanvas.getContext('2d') : null;
-          let chartAxisCtx = chartAxisCanvas ? chartAxisCanvas.getContext('2d') : null;
-          let dayTimeChartCtx = dayTimeChartCanvas ? dayTimeChartCanvas.getContext('2d') : null;
-          let dayTimeChartAxisCtx = dayTimeChartAxisCanvas ? dayTimeChartAxisCanvas.getContext('2d') : null;
-          let chartPoints = [];
-          let chartIds = new Set();
-          let dayTimeChartPoints = [];
-          let dayTimeChartIds = new Set();
-          let latestDayLabel = "";
-          let chartScheduled = false;
-          let chartResyncTimer = null;
-          let chartResyncInFlight = false;
-          let chartMaxIndex = 0;
-          const ENABLE_ANALYSIS = !!analysisBtn && !!chartCanvas && !!dayTimeChartCanvas;
-          const UI_REFRESH_INTERVAL_MS = 10000;
+function clientApp() {
+  "use strict";
 
-          function setStatus(text) {
-            if (!statusEl) return;
-            statusEl.textContent = text;
-            const statusPill = statusEl.closest ? statusEl.closest('.status-pill') : null;
-            if (statusPill) {
-              statusPill.dataset.state = text === "Live" ? "live" : "syncing";
-            }
-          }
+  const PAGE_SIZE = 10;
+  const TARGET_MS = 25_000;
+  const BUCKETS = [
+    { key: "under20", label: "<20s", name: "Very fast", color: "#899eb7" },
+    { key: "20to25", label: "20–25s", name: "Fast", color: "#b49f82" },
+    { key: "25to28", label: "25–28s", name: "In range", color: "#92b79c" },
+    { key: "28to30", label: "28–30s", name: "Slow", color: "#c99b64" },
+    { key: "over30", label: ">30s", name: "Very slow", color: "#d08c7d" },
+  ];
 
-          async function showMain() {
-            await syncShots();
-            if (mainView) mainView.classList.remove('hidden');
-            if (analysisView) analysisView.classList.add('hidden');
-            if (analysisBtn) analysisBtn.textContent = "Detailed Analysis";
-          }
+  const state = {
+    date: "",
+    page: 1,
+    filter: "all",
+    rows: [],
+    pagination: { page: 1, page_size: PAGE_SIZE, total: 0, total_pages: 1 },
+    analysis: { total: 0, average_ms: 0, buckets: {}, daily: [] },
+    window: { min_date: "", max_date: "" },
+    chartPoints: [],
+  };
 
-          async function showAnalysis() {
-            if (!ENABLE_ANALYSIS) return;
-            await syncShots();
-            if (mainView) mainView.classList.add('hidden');
-            if (analysisView) analysisView.classList.remove('hidden');
-            if (analysisBtn) analysisBtn.textContent = "Back to Log";
-            updateChartSize();
-            resizeChart();
-            if (chartScroll) chartScroll.scrollLeft = 0;
-            if (dayTimeChartScroll) dayTimeChartScroll.scrollLeft = 0;
-            scheduleChart();
-          }
+  const elements = {
+    table: document.getElementById("shotsTable"),
+    date: document.getElementById("dateInput"),
+    previousDay: document.getElementById("previousDay"),
+    nextDay: document.getElementById("nextDay"),
+    resultCount: document.getElementById("resultCount"),
+    pageSummary: document.getElementById("pageSummary"),
+    pagination: document.getElementById("pagination"),
+    filterChips: document.getElementById("filterChips"),
+    distribution: document.getElementById("distributionList"),
+    distributionTotal: document.getElementById("distributionTotal"),
+    chart: document.getElementById("trendChart"),
+    chartShell: document.getElementById("chartShell"),
+    chartTooltip: document.getElementById("chartTooltip"),
+    livePill: document.getElementById("livePill"),
+    liveStatus: document.getElementById("liveStatus"),
+    toast: document.getElementById("toast"),
+    dialog: document.getElementById("shotDialog"),
+    dialogClose: document.getElementById("dialogClose"),
+  };
 
-          async function toggleAnalysis() {
-            if (!ENABLE_ANALYSIS) return;
-            if (analysisView && !analysisView.classList.contains('hidden')) {
-              await showMain();
-            } else {
-              await showAnalysis();
-            }
-          }
+  let shotsRequest = 0;
+  let analysisRequest = 0;
+  let toastTimer = null;
+  let refreshTimer = null;
+  let socket = null;
+  let socketRetry = null;
+  let socketRetryDelay = 500;
+  let pingTimer = null;
+  let fallbackTimer = null;
 
-          if (analysisBtn) analysisBtn.addEventListener('click', toggleAnalysis);
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
 
-          function updateStats(brew, avg) {
-            const hasBrew = Number.isFinite(brew);
-            if (brewEl) {
-              brewEl.textContent = hasBrew ? Math.trunc(brew) : "--";
-            }
-            if (avgEl) {
-              const showAvg = hasBrew && brew > 0 && Number.isFinite(avg);
-              avgEl.textContent = showAvg ? formatShot(avg) : "--.--s";
-            }
-          }
+  function formatShot(ms) {
+    const value = Number(ms);
+    return Number.isFinite(value) ? (value / 1000).toFixed(2) + "s" : "--.--s";
+  }
 
-          function extractStats(r) {
-            let brew = null;
-            let avg = null;
-            if (r) {
-              if (Number.isFinite(r.brew_counter)) brew = r.brew_counter;
-              if (Number.isFinite(r.avg_ms)) avg = r.avg_ms;
-              if ((brew === null || avg === null) && r.payload) {
-                try {
-                  const p = typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload;
-                  if (brew === null && Number.isFinite(p.brew_counter)) brew = p.brew_counter;
-                  if (avg === null && Number.isFinite(p.avg_ms)) avg = p.avg_ms;
-                } catch (e) {
-                  // ignore invalid payload
-                }
-              }
-            }
-            updateStats(brew, avg);
-          }
+  function formatClock(ms) {
+    const date = new Date(Number(ms));
+    if (!Number.isFinite(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Bangkok",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
 
-          function shotCreatedAtMs(r) {
-            const direct = Number(r && r.created_at);
-            if (Number.isFinite(direct)) return direct;
-            const dt = new Date(r && r.created_at);
-            const ms = dt.getTime();
-            return Number.isFinite(ms) ? ms : 0;
-          }
+  function formatDateLabel(dateText) {
+    if (!dateText) return "—";
+    const parts = dateText.split("-");
+    return parts.length === 3 ? parts[2] + "/" + parts[1] + "/" + parts[0] : dateText;
+  }
 
-          function compareShotsDesc(a, b) {
-            const aBrew = Number(a && a.brew_counter);
-            const bBrew = Number(b && b.brew_counter);
-            const aHasBrew = Number.isFinite(aBrew);
-            const bHasBrew = Number.isFinite(bBrew);
-            const aCreated = shotCreatedAtMs(a);
-            const bCreated = shotCreatedAtMs(b);
-            if (aCreated !== bCreated) {
-              return bCreated - aCreated;
-            }
-            if (aHasBrew && bHasBrew && aBrew !== bBrew) {
-              return bBrew - aBrew;
-            }
-            if (aHasBrew !== bHasBrew) {
-              return aHasBrew ? -1 : 1;
-            }
-            const aId = String((a && a.id) || "");
-            const bId = String((b && b.id) || "");
-            if (aId === bId) return 0;
-            return aId < bId ? 1 : -1;
-          }
+  function shotDate(ms) {
+    const value = Number(ms);
+    if (!Number.isFinite(value)) return "";
+    return new Date(value + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
 
-          function sortShotsData(rows) {
-            return (Array.isArray(rows) ? rows.slice() : []).sort(compareShotsDesc);
-          }
+  function bucketFor(ms) {
+    const value = Number(ms);
+    if (!Number.isFinite(value)) return "unknown";
+    if (value < 20_000) return "under20";
+    if (value < 25_000) return "20to25";
+    if (value < 28_000) return "25to28";
+    if (value <= 30_000) return "28to30";
+    return "over30";
+  }
 
-          function renderRow(r) {
-            const dt = new Date(r.created_at);
-            const dateText = formatDate(dt);
-            const clockText = formatClock(dt);
-            const shotText = formatShot(r.shot_ms);
-            const delta = buildShotDelta(r.shot_ms);
-            const idx = Number.isFinite(r.brew_counter) ? '#' + r.brew_counter : '';
-            const key = rowKey(r);
-            const brew = Number.isFinite(Number(r && r.brew_counter)) ? Number(r.brew_counter) : "";
-            const createdAt = shotCreatedAtMs(r);
-            return \`<tr data-id="\${key}" data-brew-counter="\${brew}" data-created-at="\${createdAt}" data-timing="\${delta.timing}"><td class="brew-cell"><span class="brew-badge">\${idx}</span></td><td class="date-cell">\${dateText}</td><td class="time-cell">\${clockText}</td><td class="shot-cell">\${shotText}</td><td class="delta-cell"><span class="delta-badge \${delta.className}">\${delta.text}</span></td></tr>\`;
-          }
+  function bucketInfo(key) {
+    return BUCKETS.find((bucket) => bucket.key === key) || {
+      key: "unknown",
+      label: "—",
+      name: "Unknown",
+      color: "#777168",
+    };
+  }
 
-          function trimRows(tbody) {
-            while (tbody.children.length > MAX_ROWS) {
-              tbody.removeChild(tbody.lastElementChild);
-            }
-          }
+  function deltaInfo(ms) {
+    const value = Number(ms);
+    if (!Number.isFinite(value)) return { text: "—", className: "" };
+    const delta = (value - TARGET_MS) / 1000;
+    if (Math.abs(delta) < 0.005) return { text: "On target", className: "" };
+    return {
+      text: (delta > 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + "s",
+      className: delta > 0 ? "positive" : "negative",
+    };
+  }
 
-          function toPoint(r) {
-            if (!r) return null;
-            const x = Number(r.brew_counter);
-            const y = Number(r.shot_ms);
-            if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-            const ySec = Math.floor(y / 10) / 100;
-            const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "")));
-            return { id: key, x, y: ySec };
-          }
+  async function apiJson(url) {
+    const response = await fetch(url, { cache: "no-store" });
+    let body;
+    try { body = await response.json(); } catch { body = null; }
+    if (!response.ok || !body || body.ok === false) {
+      throw new Error(body && body.error ? body.error : "request_failed");
+    }
+    return body;
+  }
 
-          function dateKey(v) {
-            const d = new Date(v);
-            if (!Number.isFinite(d.getTime())) return "";
-            const t = d.getTime() + (7 * 60 * 60 * 1000);
-            const tz = new Date(t);
-            const y = tz.getUTCFullYear();
-            const m = pad2(tz.getUTCMonth() + 1);
-            const day = pad2(tz.getUTCDate());
-            return y + "-" + m + "-" + day;
-          }
+  async function loadShots(options = {}) {
+    const requestId = ++shotsRequest;
+    if (!options.silent) renderLoading();
 
-          function dateLabel(v) {
-            const d = new Date(v);
-            if (!Number.isFinite(d.getTime())) return "";
-            const t = d.getTime() + (7 * 60 * 60 * 1000);
-            const tz = new Date(t);
-            return pad2(tz.getUTCDate()) + "/" + pad2(tz.getUTCMonth() + 1) + "/" + String(tz.getUTCFullYear()).slice(-2);
-          }
+    const params = new URLSearchParams({
+      page: String(state.page),
+      page_size: String(PAGE_SIZE),
+    });
+    if (state.date) params.set("date", state.date);
+    if (state.filter !== "all") params.set("bucket", state.filter);
 
-          function timeOfDayHour(v) {
-            const d = new Date(v);
-            if (!Number.isFinite(d.getTime())) return null;
-            const t = d.getTime() + (7 * 60 * 60 * 1000);
-            const tz = new Date(t);
-            const hh = tz.getUTCHours();
-            const mm = tz.getUTCMinutes();
-            const ss = tz.getUTCSeconds();
-            return hh + (mm / 60) + (ss / 3600);
-          }
+    try {
+      const body = await apiJson("/api/shots?" + params.toString());
+      if (requestId !== shotsRequest) return;
+      state.rows = Array.isArray(body.data) ? body.data : [];
+      state.pagination = body.pagination || state.pagination;
+      state.date = body.selected_date || state.date;
+      state.window = body.window || state.window;
+      renderShots();
+      syncDateControls();
+      updateSelectedMetrics();
+    } catch (error) {
+      if (requestId !== shotsRequest) return;
+      renderTableError();
+      showToast("Could not load the shot log. Retrying shortly.");
+    }
+  }
 
-          function resetChart() {
-            chartPoints = [];
-            chartIds = new Set();
-            chartMaxIndex = 0;
-            dayTimeChartPoints = [];
-            dayTimeChartIds = new Set();
-            latestDayLabel = "";
-            scheduleChart();
-          }
+  async function loadAnalysis(options = {}) {
+    const requestId = ++analysisRequest;
+    try {
+      const body = await apiJson("/api/analysis");
+      if (requestId !== analysisRequest) return;
+      state.analysis = body.data || state.analysis;
+      renderAnalysis();
+      renderHeroMetrics();
+    } catch {
+      if (!options.silent) showToast("Analysis is temporarily unavailable.");
+    }
+  }
 
-          function filterToLatestSession(data) {
-            const idx = data.findIndex(r => Number(r && r.brew_counter) === 1);
-            if (idx >= 0) return data.slice(0, idx + 1);
-            return data;
-          }
+  function renderLoading() {
+    elements.table.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="loading-line"></span></td></tr>';
+    elements.resultCount.textContent = "Loading shots…";
+  }
 
-          function setChartFromData(data) {
-            if (!ENABLE_ANALYSIS) return;
-            const sessionData = filterToLatestSession(data);
-            const pts = [];
-            const ids = new Set();
-            sessionData.forEach(r => {
-              const pt = toPoint(r);
-              if (!pt || ids.has(pt.id)) return;
-              ids.add(pt.id);
-              pts.push(pt);
-            });
-            pts.sort((a, b) => a.x - b.x);
-            const trimmed = pts.length > MAX_POINTS ? pts.slice(pts.length - MAX_POINTS) : pts;
-            chartPoints = trimmed;
-            chartIds = new Set(trimmed.map(p => p.id));
-            chartMaxIndex = trimmed.reduce((m, p) => (p.x > m ? p.x : m), 0);
+  function renderTableError() {
+    elements.table.innerHTML = '<tr><td class="empty-state" colspan="6">The shot log could not be loaded.</td></tr>';
+    elements.resultCount.textContent = "Unavailable";
+  }
 
-            const latestDayKey = data.length > 0 ? dateKey(data[0].created_at) : "";
-            latestDayLabel = data.length > 0 ? dateLabel(data[0].created_at) : "";
-            const dayRowsDesc = latestDayKey ? data.filter(r => dateKey(r && r.created_at) === latestDayKey) : [];
-            const dayRows = dayRowsDesc.slice().reverse();
-            const dayTimePts = [];
-            const dayTimeIds = new Set();
-            dayRows.forEach(r => {
-              const y = Number(r && r.shot_ms);
-              const x = timeOfDayHour(r && r.created_at);
-              if (!Number.isFinite(y) || !Number.isFinite(x)) return;
-              const key = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
-              if (dayTimeIds.has(key)) return;
-              dayTimeIds.add(key);
-              dayTimePts.push({ id: key, x, y: Math.floor(y / 10) / 100 });
-            });
-            dayTimePts.sort((a, b) => a.x - b.x);
-            const dayTimeTrimmed = dayTimePts.length > MAX_POINTS ? dayTimePts.slice(dayTimePts.length - MAX_POINTS) : dayTimePts;
-            dayTimeChartPoints = dayTimeTrimmed;
-            dayTimeChartIds = new Set(dayTimeTrimmed.map(p => p.id));
+  function renderShots() {
+    if (state.rows.length === 0) {
+      const message = state.filter === "all"
+        ? "No extractions were recorded on this day."
+        : "No extractions match this time range.";
+      elements.table.innerHTML = '<tr><td class="empty-state" colspan="6">' + message + "</td></tr>";
+    } else {
+      elements.table.innerHTML = state.rows.map((row, index) => {
+        const delta = deltaInfo(row.shot_ms);
+        const bucket = bucketInfo(bucketFor(row.shot_ms));
+        const brew = Number.isFinite(Number(row.brew_counter)) ? "#" + Math.trunc(Number(row.brew_counter)) : "—";
+        const targetClass = bucket.key === "25to28" ? " target" : "";
+        return '<tr tabindex="0" data-row-index="' + index + '">' +
+          '<td><span class="brew-number">' + escapeHtml(brew) + "</span></td>" +
+          "<td>" + escapeHtml(formatClock(row.created_at)) + "</td>" +
+          '<td><span class="shot-value">' + escapeHtml(formatShot(row.shot_ms)) + "</span></td>" +
+          '<td><span class="delta ' + delta.className + '">' + escapeHtml(delta.text) + "</span></td>" +
+          '<td><span class="class-tag' + targetClass + '">' + escapeHtml(bucket.name) + "</span></td>" +
+          '<td><span class="row-arrow" aria-hidden="true">↗</span></td>' +
+          "</tr>";
+      }).join("");
+    }
 
-            if (analysisView && !analysisView.classList.contains('hidden')) {
-              updateChartSize();
-              scheduleChart();
-            }
-          }
+    const pagination = state.pagination;
+    const filterText = state.filter === "all" ? "shots" : bucketInfo(state.filter).label + " shots";
+    elements.resultCount.textContent = pagination.total + " " + filterText;
+    elements.pageSummary.textContent = "Page " + pagination.page + " of " + pagination.total_pages;
+    renderPagination();
+  }
 
-          function addChartPoint(r) {
-            if (!ENABLE_ANALYSIS) return;
-            const idx = Number(r && r.brew_counter);
-            if (Number.isFinite(idx)) {
-              if (idx === 1 || (chartMaxIndex > 0 && idx < chartMaxIndex)) {
-                resetChart();
-              }
-            }
-            const pt = toPoint(r);
-            if (!pt || chartIds.has(pt.id)) return;
-            chartIds.add(pt.id);
-            chartPoints.push(pt);
-            chartPoints.sort((a, b) => a.x - b.x);
-            if (chartPoints.length > MAX_POINTS) {
-              const excess = chartPoints.length - MAX_POINTS;
-              const removed = chartPoints.splice(0, excess);
-              removed.forEach(p => chartIds.delete(p.id));
-            }
-            if (pt.x > chartMaxIndex) chartMaxIndex = pt.x;
+  function paginationItems(current, total) {
+    if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+    const pages = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
+    const values = Array.from(pages).filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+    const items = [];
+    values.forEach((page, index) => {
+      if (index > 0 && page - values[index - 1] > 1) items.push("ellipsis-" + index);
+      items.push(page);
+    });
+    return items;
+  }
 
-            const dk = dateKey(r && r.created_at);
-            if (dk) {
-              const dl = dateLabel(r.created_at);
-              if (!latestDayLabel || latestDayLabel !== dl) {
-                dayTimeChartPoints = [];
-                dayTimeChartIds = new Set();
-                latestDayLabel = dl;
-              }
-              const dkey = String(r.id || ((r.brew_counter || "") + ":" + (r.shot_ms || "") + ":" + (r.created_at || "")));
-              if (!dayTimeChartIds.has(dkey)) {
-                const dayTimeX = timeOfDayHour(r && r.created_at);
-                if (Number.isFinite(dayTimeX)) {
-                  dayTimeChartIds.add(dkey);
-                  dayTimeChartPoints.push({ id: dkey, x: dayTimeX, y: pt.y });
-                  dayTimeChartPoints.sort((a, b) => a.x - b.x);
-                  if (dayTimeChartPoints.length > MAX_POINTS) {
-                    const excess = dayTimeChartPoints.length - MAX_POINTS;
-                    const removed = dayTimeChartPoints.splice(0, excess);
-                    removed.forEach(p => dayTimeChartIds.delete(p.id));
-                  }
-                }
-              }
-            }
+  function renderPagination() {
+    const current = state.pagination.page;
+    const total = state.pagination.total_pages;
+    const previous = '<button class="page-button" type="button" data-page="' + (current - 1) + '" aria-label="Previous page" ' + (current <= 1 ? "disabled" : "") + ">‹</button>";
+    const next = '<button class="page-button" type="button" data-page="' + (current + 1) + '" aria-label="Next page" ' + (current >= total ? "disabled" : "") + ">›</button>";
+    const pages = paginationItems(current, total).map((item) => {
+      if (typeof item === "string") return '<span class="page-ellipsis">…</span>';
+      return '<button class="page-button' + (item === current ? " active" : "") + '" type="button" data-page="' + item + '" aria-label="Page ' + item + '" ' + (item === current ? 'aria-current="page"' : "") + ">" + item + "</button>";
+    }).join("");
+    elements.pagination.innerHTML = previous + pages + next;
+  }
 
-            if (analysisView && !analysisView.classList.contains('hidden')) {
-              updateChartSize();
-              scheduleChart();
-            }
-          }
+  function syncDateControls() {
+    elements.date.value = state.date;
+    elements.date.min = state.window.min_date || "";
+    elements.date.max = state.window.max_date || "";
+    elements.previousDay.disabled = Boolean(state.window.min_date && state.date <= state.window.min_date);
+    elements.nextDay.disabled = Boolean(state.window.max_date && state.date >= state.window.max_date);
+  }
 
-          function rowKey(r) {
-            return String(r && r.id ? r.id : "");
-          }
+  function updateSelectedMetrics() {
+    document.getElementById("metricSelected").textContent = String(state.pagination.total);
+    const latest = state.rows[0];
+    document.getElementById("heroLatest").textContent = latest ? formatShot(latest.shot_ms) : "--.--s";
+  }
 
-          function rowDataFromElement(tr) {
-            if (!tr) return null;
-            return {
-              id: tr.dataset.id || "",
-              brew_counter: tr.dataset.brewCounter === "" ? null : Number(tr.dataset.brewCounter),
-              created_at: tr.dataset.createdAt === "" ? 0 : Number(tr.dataset.createdAt),
-            };
-          }
+  function renderHeroMetrics() {
+    const analysis = state.analysis;
+    document.getElementById("metricTotal").textContent = String(analysis.total || 0);
+    document.getElementById("metricAverage").textContent = formatShot(analysis.average_ms);
+    const buckets = analysis.buckets || {};
+    const consistent = (Number(buckets["25to28"]) || 0) + (Number(buckets["28to30"]) || 0);
+    const percent = analysis.total > 0 ? Math.round(consistent * 100 / analysis.total) : 0;
+    document.getElementById("heroConsistency").textContent = percent + "%";
+  }
 
-          function sortTbodyRows(tbody) {
-            if (!tbody) return;
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            rows.sort((a, b) => compareShotsDesc(rowDataFromElement(a), rowDataFromElement(b)));
-            rows.forEach(row => tbody.appendChild(row));
-          }
+  function renderAnalysis() {
+    const analysis = state.analysis;
+    const total = Number(analysis.total) || 0;
+    elements.distributionTotal.textContent = total + (total === 1 ? " extraction" : " extractions");
+    elements.distribution.innerHTML = BUCKETS.map((bucket) => {
+      const count = Number(analysis.buckets && analysis.buckets[bucket.key]) || 0;
+      const width = total > 0 ? Math.max(count > 0 ? 3 : 0, count * 100 / total) : 0;
+      return '<button class="distribution-row" type="button" data-bucket="' + bucket.key + '">' +
+        '<span class="distribution-label">' + bucket.label + "</span>" +
+        '<span class="bar-track"><i class="bar-fill" style="width:' + width.toFixed(1) + "%;background:" + bucket.color + '"></i></span>' +
+        '<strong class="distribution-value">' + count + "</strong>" +
+        "</button>";
+    }).join("");
+    requestAnimationFrame(drawChart);
+  }
 
-          function prependRow(r) {
-            const tbody = document.getElementById('shots');
-            if (!tbody) return;
-            const key = rowKey(r);
-            if (!key) return;
-            if (seen.has(key)) return;
-            if (tbody.children.length === 1) {
-              const onlyRow = tbody.firstElementChild;
-              const onlyCell = onlyRow && onlyRow.children && onlyRow.children.length === 1 ? onlyRow.children[0] : null;
-              if (onlyCell && onlyCell.getAttribute('colspan') === '5') {
-                tbody.innerHTML = '';
-              }
-            }
-            seen.add(key);
-            tbody.insertAdjacentHTML('afterbegin', renderRow(r));
-            sortTbodyRows(tbody);
-            trimRows(tbody);
-            const firstRow = tbody.firstElementChild;
-            if (firstRow && firstRow.dataset && firstRow.dataset.id === key) {
-              extractStats(r);
-            }
-            addChartPoint(r);
-            scheduleChartResync();
-          }
+  function drawChart() {
+    const canvas = elements.chart;
+    const shell = elements.chartShell;
+    if (!canvas || !shell) return;
+    const rect = shell.getBoundingClientRect();
+    const width = Math.max(320, Math.round(rect.width));
+    const height = Math.max(260, Math.round(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
 
-          function scheduleChartResync() {
-            if (!ENABLE_ANALYSIS) return;
-            if (!analysisView || analysisView.classList.contains('hidden')) return;
-            if (chartResyncTimer) return;
-            chartResyncTimer = setTimeout(async () => {
-              chartResyncTimer = null;
-              if (chartResyncInFlight) return;
-              chartResyncInFlight = true;
-              try {
-                const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
-                const json = await res.json();
-                const data = sortShotsData(Array.isArray(json && json.data) ? json.data : []);
-                setChartFromData(data);
-              } catch (e) {
-                // ignore resync errors
-              } finally {
-                chartResyncInFlight = false;
-              }
-            }, CHART_RESYNC_DEBOUNCE_MS);
-          }
+    const rows = Array.isArray(state.analysis.daily) ? state.analysis.daily : [];
+    if (rows.length === 0) {
+      ctx.fillStyle = "#777168";
+      ctx.font = "12px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("No analysis data yet", width / 2, height / 2);
+      state.chartPoints = [];
+      return;
+    }
 
-          async function loadShots() {
-            try {
-              const res = await fetch('/api/shots?limit=500', { cache: 'no-store' });
-              const json = await res.json();
-              const tbody = document.getElementById('shots');
-              const data = sortShotsData(json.data || []);
-              if (data.length === 0) {
-                seen.clear();
-                tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No data</td></tr>';
-                updateStats(null, null);
-                setChartFromData([]);
-                return;
-              }
-              seen.clear();
-              data.forEach(r => {
-                const key = rowKey(r);
-                if (key) seen.add(key);
-              });
-              tbody.innerHTML = data.map(r => renderRow(r)).join('');
-              trimRows(tbody);
-              extractStats(data[0]);
-              setChartFromData(data);
-              updateChartSize();
-            } catch (e) {
-              // ignore fetch errors (offline etc.)
-            }
-          }
+    const pad = { top: 24, right: 18, bottom: 34, left: 42 };
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const seconds = rows.map((row) => Number(row.average_ms) / 1000).filter(Number.isFinite);
+    const minY = Math.max(0, Math.floor(Math.min(20, ...seconds) - 3));
+    const maxY = Math.ceil(Math.max(30, ...seconds) + 3);
+    const xFor = (index) => pad.left + (rows.length === 1 ? plotWidth / 2 : index * plotWidth / (rows.length - 1));
+    const yFor = (value) => pad.top + (maxY - value) * plotHeight / Math.max(1, maxY - minY);
 
-          function formatShot(ms) {
-            if (!Number.isFinite(ms)) return "--.--s";
-            const cs = Math.floor(ms / 10);
-            return (cs / 100).toFixed(2) + "s";
-          }
-          function pad2(n){ return n < 10 ? "0"+n : ""+n; }
-          function formatTime(d){
-            const hh = pad2(d.getHours());
-            const mm = pad2(d.getMinutes());
-            const dd = pad2(d.getDate());
-            const mo = pad2(d.getMonth()+1);
-            const yy = (""+d.getFullYear()).slice(-2);
-            return \`\${hh}h\${mm} \${dd}/\${mo}/\${yy}\`;
-          }
-          function formatClock(d){
-            return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
-          }
-          function formatDate(d){
-            return pad2(d.getDate()) + "/" + pad2(d.getMonth()+1) + "/" + (""+d.getFullYear()).slice(-2);
-          }
-          function buildShotDelta(ms) {
-            const shotMs = Number(ms);
-            if (!Number.isFinite(shotMs)) {
-              return { text: "--", className: "is-neutral", timing: "neutral" };
-            }
-            const deltaSec = (shotMs / 1000) - TARGET_TIME_SEC;
-            const abs = Math.abs(deltaSec);
-            if (abs < 0.005) {
-              return { text: "Target", className: "is-target", timing: "target" };
-            }
-            const prefix = deltaSec > 0 ? "+" : "-";
-            return {
-              text: prefix + abs.toFixed(2) + "s",
-              className: deltaSec > 0 ? "is-slow" : "is-fast",
-              timing: deltaSec > 0 ? "slow" : "fast"
-            };
-          }
-          function scheduleChart() {
-            if (!ENABLE_ANALYSIS) return;
-            if (!chartCanvas || !chartCtx) return;
-            if (chartScheduled) return;
-            chartScheduled = true;
-            requestAnimationFrame(() => {
-              chartScheduled = false;
-              drawChart();
-              drawDayTimeChart();
-            });
-          }
+    ctx.strokeStyle = "rgba(245,238,225,.09)";
+    ctx.fillStyle = "#777168";
+    ctx.font = "10px Inter, sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let index = 0; index <= 4; index += 1) {
+      const value = minY + (maxY - minY) * index / 4;
+      const y = yFor(value);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(width - pad.right, y);
+      ctx.stroke();
+      ctx.fillText(value.toFixed(0) + "s", pad.left - 9, y);
+    }
 
-          function updateSingleChartSize(canvas, axisCanvas, scrollEl, points, opts) {
-            if (!canvas || !scrollEl) return;
-            const options = opts || {};
-            const containerW = scrollEl.clientWidth || 0;
-            const minX = Number.isFinite(options.minX) ? options.minX : 0;
-            const maxX = Number.isFinite(options.maxX)
-              ? options.maxX
-              : (points.length > 0 ? points.reduce((m, p) => (p.x > m ? p.x : m), minX) : minX);
-            const span = Math.max(1, (maxX - minX + 1));
-            const spacing = Number.isFinite(options.spacing) ? options.spacing : 28;
-            const desired = span * spacing + 70;
-            const width = Math.max(containerW, desired);
-            canvas.style.width = width + "px";
-            canvas.style.height = "320px";
-            if (axisCanvas) {
-              axisCanvas.style.width = "50px";
-              axisCanvas.style.height = "320px";
-            }
-          }
+    const targetY = yFor(25);
+    ctx.setLineDash([5, 6]);
+    ctx.strokeStyle = "rgba(201,155,100,.65)";
+    ctx.beginPath();
+    ctx.moveTo(pad.left, targetY);
+    ctx.lineTo(width - pad.right, targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-          function updateChartSize() {
-            if (!ENABLE_ANALYSIS) return;
-            updateSingleChartSize(chartCanvas, chartAxisCanvas, chartScroll, chartPoints);
-            updateSingleChartSize(dayTimeChartCanvas, dayTimeChartAxisCanvas, dayTimeChartScroll, dayTimeChartPoints, {
-              minX: 0,
-              maxX: DAY_TIME_MAX_HOUR,
-              spacing: 70
-            });
-            resizeChart();
-          }
+    const gradient = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
+    gradient.addColorStop(0, "rgba(201,155,100,.28)");
+    gradient.addColorStop(1, "rgba(201,155,100,0)");
+    ctx.beginPath();
+    rows.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(Number(row.average_ms) / 1000);
+      if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xFor(rows.length - 1), height - pad.bottom);
+    ctx.lineTo(xFor(0), height - pad.bottom);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
 
-          function resizeChart() {
-            if (!ENABLE_ANALYSIS) return;
-            const dpr = window.devicePixelRatio || 1;
-            function resizeOne(canvas, ctx, axisCanvas, axisCtx) {
-              if (!canvas || !ctx) return;
-              const w = canvas.clientWidth || 0;
-              const h = canvas.clientHeight || 0;
-              if (w === 0 || h === 0) return;
-              canvas.width = Math.floor(w * dpr);
-              canvas.height = Math.floor(h * dpr);
-              ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-              if (axisCanvas && axisCtx) {
-                const aw = axisCanvas.clientWidth || 0;
-                const ah = axisCanvas.clientHeight || 0;
-                if (aw > 0 && ah > 0) {
-                  axisCanvas.width = Math.floor(aw * dpr);
-                  axisCanvas.height = Math.floor(ah * dpr);
-                  axisCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                }
-              }
-            }
-            resizeOne(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx);
-            resizeOne(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx);
-          }
+    ctx.beginPath();
+    rows.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(Number(row.average_ms) / 1000);
+      if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = "#c99b64";
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
-          function drawLineChart(canvas, ctx, axisCanvas, axisCtx, scrollEl, points, xLabel, opts) {
-            if (!canvas || !ctx) return;
-            const options = opts || {};
-            const xMode = options.xMode === "time" ? "time" : "index";
-            const timeMinX = Number.isFinite(options.minX) ? options.minX : 0;
-            const timeMaxX = Number.isFinite(options.maxX) ? options.maxX : 24;
-            const xGridStep = Number.isFinite(options.xGridStep) ? options.xGridStep : (xMode === "time" ? 2 : 1);
-            const xLabelStep = Number.isFinite(options.xLabelStep) ? options.xLabelStep : (xMode === "time" ? 2 : 1);
-            const showLine = options.showLine !== false;
-            const lineColor = typeof options.lineColor === "string" ? options.lineColor : "#F0B90B";
-            const pointColor = typeof options.pointColor === "string" ? options.pointColor : "#F0B90B";
-            const pointRadius = Number.isFinite(options.pointRadius) ? options.pointRadius : 2.5;
-            const w = canvas.clientWidth || 0;
-            const h = canvas.clientHeight || 0;
-            if (w === 0 || h === 0) return;
-            ctx.clearRect(0, 0, w, h);
-            ctx.fillStyle = "#2B2F36";
-            ctx.fillRect(0, 0, w, h);
+    state.chartPoints = rows.map((row, index) => {
+      const point = { x: xFor(index), y: yFor(Number(row.average_ms) / 1000), row };
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#eee8de";
+      ctx.fill();
+      ctx.strokeStyle = "#171513";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      return point;
+    });
 
-            if (points.length === 0) {
-              ctx.fillStyle = "#848E9C";
-              ctx.font = "12px BinancePlex, Arial, sans-serif";
-              ctx.fillText("No data yet", 12, 20);
-              return;
-            }
+    const labelIndexes = Array.from(new Set([0, Math.floor((rows.length - 1) / 2), rows.length - 1]));
+    ctx.fillStyle = "#777168";
+    ctx.font = "10px Inter, sans-serif";
+    ctx.textBaseline = "top";
+    labelIndexes.forEach((index) => {
+      ctx.textAlign = index === 0 ? "left" : index === rows.length - 1 ? "right" : "center";
+      ctx.fillText(formatDateLabel(rows[index].date).slice(0, 5), xFor(index), height - pad.bottom + 12);
+    });
+  }
 
-            let minX = xMode === "time" ? timeMinX : 0;
-            let maxX = xMode === "time" ? timeMaxX : points[0].x;
-            let maxY = points[0].y;
-            for (const p of points) {
-              if (xMode !== "time" && p.x > maxX) maxX = p.x;
-              if (p.y > maxY) maxY = p.y;
-            }
-            if (minX === maxX) { maxX = minX + 1; }
-            const yValsRaw = points.map(p => Number(p.y)).filter(v => Number.isFinite(v));
-            const rawMin = yValsRaw.length > 0 ? Math.min(...yValsRaw) : 0;
-            const rawMax = yValsRaw.length > 0 ? Math.max(...yValsRaw) : maxY;
-            const rawMinWithTarget = Math.min(rawMin, TARGET_TIME_SEC);
-            const rawMaxWithTarget = Math.max(rawMax, TARGET_TIME_SEC);
-            const yStep = 2;
-            let yMin = Math.floor(rawMinWithTarget / yStep) * yStep;
-            let yMax = Math.ceil(rawMaxWithTarget / yStep) * yStep;
-            if (yMin === yMax) yMax = yMin + yStep;
-            const yVals = [];
-            for (let y = yMin; y <= yMax + 0.0001; y += yStep) {
-              yVals.push(Math.round(y * 100) / 100);
-            }
+  function showChartTooltip(event) {
+    if (state.chartPoints.length === 0) return;
+    const rect = elements.chart.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    let nearest = state.chartPoints[0];
+    state.chartPoints.forEach((point) => {
+      if (Math.abs(point.x - x) < Math.abs(nearest.x - x)) nearest = point;
+    });
+    if (Math.abs(nearest.x - x) > 28) {
+      elements.chartTooltip.hidden = true;
+      return;
+    }
+    elements.chartTooltip.innerHTML = formatDateLabel(nearest.row.date) + " · " + nearest.row.count + " shots<strong>" + formatShot(nearest.row.average_ms) + " avg</strong>";
+    elements.chartTooltip.style.left = nearest.x + "px";
+    elements.chartTooltip.style.top = nearest.y + "px";
+    elements.chartTooltip.hidden = false;
+  }
 
-            const padL = 10;
-            const padR = 16;
-            const padT = 16;
-            const padB = 32;
-            const plotW = Math.max(1, w - padL - padR);
-            const plotH = Math.max(1, h - padT - padB);
-            const axisX = padL;
+  function openShot(index) {
+    const row = state.rows[index];
+    if (!row || !elements.dialog) return;
+    const bucket = bucketInfo(bucketFor(row.shot_ms));
+    const delta = deltaInfo(row.shot_ms);
+    const brew = Number.isFinite(Number(row.brew_counter)) ? "#" + Math.trunc(Number(row.brew_counter)) : "—";
+    document.getElementById("dialogBrew").textContent = brew;
+    document.getElementById("dialogTime").textContent = formatShot(row.shot_ms);
+    document.getElementById("dialogRecorded").textContent = formatDateLabel(shotDate(row.created_at)) + " · " + formatClock(row.created_at);
+    document.getElementById("dialogDelta").textContent = delta.text;
+    document.getElementById("dialogAverage").textContent = formatShot(row.avg_ms);
+    document.getElementById("dialogClass").textContent = bucket.name + " (" + bucket.label + ")";
+    elements.dialog.showModal();
+  }
 
-            function xFor(x) {
-              return padL + ((x - minX) / (maxX - minX)) * plotW;
-            }
-            function yFor(y) {
-              return padT + (1 - (y - yMin) / (yMax - yMin)) * plotH;
-            }
+  function setFilter(filter) {
+    state.filter = filter || "all";
+    state.page = 1;
+    elements.filterChips.querySelectorAll("[data-filter]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.filter === state.filter);
+    });
+    loadShots();
+  }
 
-            // axis line
-            ctx.strokeStyle = "#686A6C";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(padL, padT + plotH);
-            ctx.lineTo(padL + plotW, padT + plotH);
-            ctx.stroke();
+  function changeDate(date) {
+    if (!date || date < state.window.min_date || date > state.window.max_date) return;
+    state.date = date;
+    state.page = 1;
+    loadShots();
+  }
 
-            // grid
-            ctx.strokeStyle = "rgba(230, 232, 234, 0.14)";
-            ctx.lineWidth = 1;
-            for (const yVal of yVals) {
-              const y = yFor(yVal);
-              ctx.beginPath();
-              ctx.moveTo(axisX, y);
-              ctx.lineTo(axisX + plotW, y);
-              ctx.stroke();
-            }
+  function shiftDate(days) {
+    if (!state.date) return;
+    const start = Date.parse(state.date + "T00:00:00+07:00");
+    const shifted = new Date(start + days * 24 * 60 * 60 * 1000 + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    changeDate(shifted);
+  }
 
-            // x grid
-            ctx.strokeStyle = "rgba(230, 232, 234, 0.08)";
-            for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xGridStep) {
-              const x = xFor(xVal);
-              ctx.beginPath();
-              ctx.moveTo(x, padT);
-              ctx.lineTo(x, padT + plotH);
-              ctx.stroke();
-            }
+  function showToast(message) {
+    elements.toast.textContent = message;
+    elements.toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => elements.toast.classList.remove("show"), 3200);
+  }
 
-            // fixed target line (25s)
-            const targetY = yFor(TARGET_TIME_SEC);
-            ctx.strokeStyle = "#FFD000";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(axisX, targetY);
-            ctx.lineTo(axisX + plotW, targetY);
-            ctx.stroke();
+  function setLiveStatus(status, stateName) {
+    elements.liveStatus.textContent = status;
+    elements.livePill.dataset.state = stateName;
+  }
 
-            // legend (top-right)
-            const legendText = "Target Time";
-            ctx.font = "12px BinancePlex, Arial, sans-serif";
-            const legendTextW = ctx.measureText(legendText).width;
-            const legendPad = 6;
-            const sampleW = 20;
-            const legendW = sampleW + 8 + legendTextW + legendPad * 2;
-            const legendH = 20;
-            const viewRight = scrollEl ? (scrollEl.scrollLeft + scrollEl.clientWidth) : (axisX + plotW);
-            const rightClamp = axisX + plotW - 6;
-            const leftClamp = axisX + legendW + 6;
-            const legendRight = Math.min(rightClamp, Math.max(leftClamp, viewRight - 8));
-            const legendX = legendRight - legendW;
-            const legendY = Math.max(2, padT - legendH - 4);
-            ctx.fillStyle = "rgba(10, 14, 18, 0.78)";
-            ctx.fillRect(legendX, legendY, legendW, legendH);
-            ctx.strokeStyle = "rgba(255, 208, 0, 0.38)";
-            ctx.lineWidth = 1;
-            ctx.strokeRect(legendX, legendY, legendW, legendH);
-            const sampleY = legendY + Math.floor(legendH / 2) + 0.5;
-            const sampleX1 = legendX + legendPad;
-            const sampleX2 = sampleX1 + sampleW;
-            ctx.strokeStyle = "#FFD000";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(sampleX1, sampleY);
-            ctx.lineTo(sampleX2, sampleY);
-            ctx.stroke();
-            ctx.fillStyle = "#FFD000";
-            ctx.textBaseline = "middle";
-            ctx.fillText(legendText, sampleX2 + 8, sampleY);
-            ctx.textBaseline = "alphabetic";
+  function scheduleRealtimeRefresh(message) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      loadAnalysis({ silent: true });
+      if (shotDate(message && message.created_at) === state.date) {
+        loadShots({ silent: true });
+      } else {
+        showToast("A new extraction was added to " + formatDateLabel(shotDate(message && message.created_at)) + ".");
+      }
+    }, 450);
+  }
 
-            // line
-            if (showLine) {
-              ctx.strokeStyle = lineColor;
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              points.forEach((p, i) => {
-                const x = xFor(p.x);
-                const y = yFor(p.y);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-              });
-              ctx.stroke();
-            }
+  function stopFallbackPoll() {
+    clearInterval(fallbackTimer);
+    fallbackTimer = null;
+  }
 
-            // points
-            ctx.fillStyle = pointColor;
-            for (const p of points) {
-              const x = xFor(p.x);
-              const y = yFor(p.y);
-              ctx.beginPath();
-              ctx.arc(x, y, pointRadius, 0, Math.PI * 2);
-              ctx.fill();
-            }
+  function startFallbackPoll() {
+    if (fallbackTimer) return;
+    fallbackTimer = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadShots({ silent: true });
+        loadAnalysis({ silent: true });
+      }
+    }, 15_000);
+  }
 
-            // labels
-            ctx.fillStyle = "#848E9C";
-            ctx.font = "11px BinancePlex, Arial, sans-serif";
-            ctx.fillText(xLabel, padL, h - 10);
-            if (xMode === "time") {
-              for (let xVal = minX; xVal <= maxX + 0.0001; xVal += xLabelStep) {
-                const x = xFor(xVal);
-                const totalMin = Math.round(xVal * 60);
-                const hh = Math.floor(totalMin / 60) % 24;
-                const mm = totalMin % 60;
-                const label = pad2(hh) + ":" + pad2(mm);
-                ctx.fillText(label, x - 16, h - 22);
-              }
-            } else {
-              for (let xVal = minX; xVal <= maxX; xVal += xLabelStep) {
-                const x = xFor(xVal);
-                ctx.fillText(String(xVal), x - 4, h - 22);
-              }
-            }
+  function connectSocket() {
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+    clearTimeout(socketRetry);
+    setLiveStatus("Connecting", "connecting");
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const current = new WebSocket(protocol + "//" + location.host + "/api/ws");
+    socket = current;
 
-            if (axisCtx && axisCanvas) {
-              const ax = axisCanvas.clientWidth || 0;
-              const ay = axisCanvas.clientHeight || 0;
-              axisCtx.clearRect(0, 0, ax, ay);
-              axisCtx.fillStyle = "#222126";
-              axisCtx.fillRect(0, 0, ax, ay);
-              axisCtx.strokeStyle = "#686A6C";
-              axisCtx.lineWidth = 1;
-              axisCtx.beginPath();
-              axisCtx.moveTo(ax - 1, padT);
-              axisCtx.lineTo(ax - 1, padT + plotH);
-              axisCtx.stroke();
-              axisCtx.fillStyle = "#848E9C";
-              axisCtx.textAlign = "right";
-              axisCtx.textBaseline = "middle";
-              for (const yVal of yVals) {
-                const y = yFor(yVal);
-                axisCtx.fillText(String(yVal) + "s", ax - 8, y - 2);
-              }
-            }
-          }
+    current.onopen = () => {
+      socketRetryDelay = 500;
+      setLiveStatus("Live", "live");
+      stopFallbackPoll();
+      clearInterval(pingTimer);
+      pingTimer = setInterval(() => {
+        try { current.send("ping"); } catch {}
+      }, 20_000);
+    };
+    current.onmessage = (event) => {
+      if (event.data === "pong") return;
+      try { scheduleRealtimeRefresh(JSON.parse(event.data)); } catch {}
+    };
+    current.onclose = () => {
+      if (socket === current) socket = null;
+      clearInterval(pingTimer);
+      setLiveStatus("Reconnecting", "connecting");
+      startFallbackPoll();
+      socketRetry = setTimeout(connectSocket, socketRetryDelay);
+      socketRetryDelay = Math.min(socketRetryDelay * 1.8, 8_000);
+    };
+    current.onerror = () => {
+      try { current.close(); } catch {}
+    };
+  }
 
-          function drawChart() {
-            if (!ENABLE_ANALYSIS) return;
-            drawLineChart(chartCanvas, chartCtx, chartAxisCanvas, chartAxisCtx, chartScroll, chartPoints, "Brew count");
-          }
+  elements.date.addEventListener("change", () => changeDate(elements.date.value));
+  elements.previousDay.addEventListener("click", () => shiftDate(-1));
+  elements.nextDay.addEventListener("click", () => shiftDate(1));
+  elements.filterChips.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-filter]");
+    if (button) setFilter(button.dataset.filter);
+  });
+  elements.pagination.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-page]");
+    if (!button || button.disabled) return;
+    const page = Number(button.dataset.page);
+    if (!Number.isInteger(page) || page < 1 || page > state.pagination.total_pages) return;
+    state.page = page;
+    loadShots();
+    document.getElementById("shot-log").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  elements.table.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-row-index]");
+    if (row) openShot(Number(row.dataset.rowIndex));
+  });
+  elements.table.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("[data-row-index]");
+    if (row) {
+      event.preventDefault();
+      openShot(Number(row.dataset.rowIndex));
+    }
+  });
+  elements.distribution.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-bucket]");
+    if (!button) return;
+    setFilter(button.dataset.bucket);
+    document.getElementById("shot-log").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  elements.dialogClose.addEventListener("click", () => elements.dialog.close());
+  elements.dialog.addEventListener("click", (event) => {
+    if (event.target === elements.dialog) elements.dialog.close();
+  });
+  elements.chart.addEventListener("mousemove", showChartTooltip);
+  elements.chart.addEventListener("mouseleave", () => { elements.chartTooltip.hidden = true; });
 
-          function drawDayTimeChart() {
-            if (!ENABLE_ANALYSIS) return;
-            const label = latestDayLabel ? ("Time of day (" + latestDayLabel + ")") : "Time of day (day)";
-            drawLineChart(dayTimeChartCanvas, dayTimeChartCtx, dayTimeChartAxisCanvas, dayTimeChartAxisCtx, dayTimeChartScroll, dayTimeChartPoints, label, {
-              xMode: "time",
-              minX: 0,
-              maxX: DAY_TIME_MAX_HOUR,
-              xGridStep: 0.5,
-              xLabelStep: 0.5,
-              showLine: false,
-              pointColor: "#F0B90B",
-              pointRadius: 3.5
-            });
-          }
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(() => requestAnimationFrame(drawChart)).observe(elements.chartShell);
+  } else {
+    window.addEventListener("resize", drawChart);
+  }
 
-                    
-                              let wsFastPoll = null;
-                              let wsRetryDelay = 300;
-                              let wsLastSeenMs = 0;
-                              let wsReconnectTimer = null;
-                              let loadShotsInFlight = null;
-                              const WS_PING_INTERVAL_MS = 10000;
-                              const WS_STALE_TIMEOUT_MS = 30000;
+  const sections = Array.from(document.querySelectorAll(".section-anchor"));
+  const navLinks = Array.from(document.querySelectorAll("[data-nav]"));
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      navLinks.forEach((link) => link.classList.toggle("active", link.dataset.nav === visible.target.id));
+    }, { rootMargin: "-35% 0px -55%", threshold: [0, 0.2, 0.6] });
+    sections.forEach((section) => observer.observe(section));
+  }
 
-                              async function fastPollLatest() {
-                                try {
-                                  const res = await fetch('/api/shots?limit=5', { cache: 'no-store' });
-                                  const json = await res.json();
-                                  const data = sortShotsData(json.data || []);
-                                  for (let i = data.length - 1; i >= 0; i--) {
-                                    prependRow(data[i]);
-                                  }
-                                } catch (e) {
-                                  // ignore
-                                }
-                              }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    loadShots({ silent: true });
+    loadAnalysis({ silent: true });
+    connectSocket();
+  });
+  window.addEventListener("online", connectSocket);
 
-                              function startFastPoll() {
-                                if (wsFastPoll) return;
-                                wsFastPoll = setInterval(fastPollLatest, 1000);
-                              }
+  Promise.all([loadShots(), loadAnalysis()]);
+  connectSocket();
+}
 
-                              function stopFastPoll() {
-                                if (!wsFastPoll) return;
-                                clearInterval(wsFastPoll);
-                                wsFastPoll = null;
-                              }
-
-                              async function syncShots() {
-                                if (loadShotsInFlight) return loadShotsInFlight;
-                                loadShotsInFlight = loadShots()
-                                  .catch(() => {})
-                                  .finally(() => {
-                                    loadShotsInFlight = null;
-                                  });
-                                return loadShotsInFlight;
-                              }
-
-                              function scheduleWsReconnect(delay) {
-                                if (wsReconnectTimer) return;
-                                wsReconnectTimer = setTimeout(() => {
-                                  wsReconnectTimer = null;
-                                  connectWs();
-                                }, delay);
-                              }
-
-                              function ensureWsFresh() {
-                                const ws = window._shotWs;
-                                const now = Date.now();
-                                if (!ws || ws.readyState !== WebSocket.OPEN) {
-                                  if (ws && ws.readyState !== WebSocket.CONNECTING) {
-                                    try { ws.close(); } catch (e) {}
-                                  }
-                                  connectWs();
-                                  return;
-                                }
-                                if (now - wsLastSeenMs > WS_STALE_TIMEOUT_MS) {
-                                  try { ws.close(); } catch (e) {}
-                                  return;
-                                }
-                                try { ws.send("ping"); } catch (e) {
-                                  try { ws.close(); } catch (closeErr) {}
-                                }
-                              }
-
-                              function refreshLiveViews() {
-                                syncShots();
-                                ensureWsFresh();
-                              }
-
-          function connectWs() {
-            const current = window._shotWs;
-            if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) {
-              return;
-            }
-            setStatus("Connecting...");
-            const proto = location.protocol === "https:" ? "wss" : "ws";
-            const ws = new WebSocket(proto + "://" + location.host + "/api/ws");
-            window._shotWs = ws;
-            stopFastPoll();
-            ws.onopen = () => {
-              setStatus("Live");
-              wsRetryDelay = 300;
-              wsLastSeenMs = Date.now();
-              scheduleChartResync();
-              syncShots();
-              if (window._shotWsPing) {
-                clearInterval(window._shotWsPing);
-                window._shotWsPing = null;
-              }
-              window._shotWsPing = setInterval(() => {
-                const now = Date.now();
-                if (now - wsLastSeenMs > WS_STALE_TIMEOUT_MS) {
-                  try { ws.close(); } catch (e) {}
-                  return;
-                }
-                try { ws.send("ping"); } catch (e) {}
-              }, WS_PING_INTERVAL_MS);
-            };
-            ws.onmessage = (ev) => {
-              try {
-                wsLastSeenMs = Date.now();
-                if (ev.data === "pong") return;
-                const data = JSON.parse(ev.data);
-                if (data) prependRow(data);
-              } catch (e) {
-                // ignore bad payloads
-              }
-            };
-            ws.onclose = () => {
-              setStatus("Reconnecting...");
-              if (window._shotWs === ws) {
-                window._shotWs = null;
-              }
-              if (window._shotWsPing) {
-                clearInterval(window._shotWsPing);
-                window._shotWsPing = null;
-              }
-              startFastPoll();
-              const delay = wsRetryDelay || 300;
-              scheduleWsReconnect(delay);
-              wsRetryDelay = Math.min((wsRetryDelay || 300) * 2, 2000);
-            };
-            ws.onerror = () => {
-              ws.close();
-            };
-          }
-
-          syncShots();
-          connectWs();
-          document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState !== 'visible') return;
-            refreshLiveViews();
-          });
-          window.addEventListener('focus', () => {
-            refreshLiveViews();
-          });
-          window.addEventListener('pageshow', () => {
-            refreshLiveViews();
-          });
-          window.addEventListener('online', () => {
-            refreshLiveViews();
-          });
-          setInterval(() => {
-            if (document.visibilityState === 'hidden') return;
-            refreshLiveViews();
-          }, UI_REFRESH_INTERVAL_MS);
-          if (chartScroll) {
-            chartScroll.addEventListener('scroll', () => {
-              if (!ENABLE_ANALYSIS) return;
-              scheduleChart();
-            }, { passive: true });
-          }
-          if (dayTimeChartScroll) {
-            dayTimeChartScroll.addEventListener('scroll', () => {
-              if (!ENABLE_ANALYSIS) return;
-              scheduleChart();
-            }, { passive: true });
-          }
-          window.addEventListener('resize', () => {
-            if (!ENABLE_ANALYSIS) return;
-            updateChartSize();
-            scheduleChart();
-          });
-`;
+export const CLIENT_SCRIPT = `(${clientApp.toString()})();`;

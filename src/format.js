@@ -40,3 +40,13 @@ export function formatDate(d) {
   const yy = ("" + d.getFullYear()).slice(-2);
   return `${dd}/${mo}/${yy}`;
 }
+
+export function classifyShotMs(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return "unknown";
+  if (ms < 20_000) return "under20";
+  if (ms < 25_000) return "20to25";
+  if (ms < 28_000) return "25to28";
+  if (ms <= 30_000) return "28to30";
+  return "over30";
+}

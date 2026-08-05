@@ -1,3 +1,9 @@
 export const ALLOWED_ORIGIN = "https://shotlog.barista-homelife.cloud";
 export const HUB_NAME = "global";
 export const DEV_ORIGINS = new Set(["http://localhost:8787", "http://127.0.0.1:8787"]);
+export const BANGKOK_UTC_OFFSET = "+07:00";
+export const HISTORY_DAYS = 30;
+export const DEFAULT_PAGE_SIZE = 10;
+export const MAX_PAGE_SIZE = 50;
+export const MAX_INGEST_BYTES = 16 * 1024;
+export const MAX_SHOT_MS = 10 * 60 * 1000;

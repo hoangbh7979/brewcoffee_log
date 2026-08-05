@@ -7,6 +7,7 @@ compatibility_date = "2025-01-01"
 binding = "DB"
 database_name = "shotlog"
 database_id = "1a90d333-1225-47b4-9ec0-bba6070bf6fb"
+migrations_dir = "migrations"
 
 [durable_objects]
 bindings = [

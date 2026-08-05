@@ -1,64 +1,111 @@
-import { HUB_NAME } from "./config.js";
-import { num } from "./format.js";
+import { HUB_NAME, MAX_INGEST_BYTES, MAX_SHOT_MS } from "./config.js";
 import { corsHeaders, json } from "./http.js";
 
-export async function handleHttpIngest(request, env, origin, allowedOrigin) {
-  const url = new URL(request.url);
-  const key =
-    request.headers.get("x-api-key") ||
-    url.searchParams.get("key") ||
-    "";
+const MAX_FUTURE_DRIFT_MS = 24 * 60 * 60 * 1000;
 
-  if (!env.API_KEY || key !== env.API_KEY) {
+export function readApiKey(request) {
+  const url = new URL(request.url);
+  return request.headers.get("x-api-key") || url.searchParams.get("key") || "";
+}
+
+export async function handleHttpIngest(request, env, origin, allowedOrigin) {
+  if (!env.API_KEY || readApiKey(request) !== env.API_KEY) {
     return json({ ok: false, error: "unauthorized" }, origin, allowedOrigin, 401);
   }
 
-  let payload = null;
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_INGEST_BYTES) {
+    return json({ ok: false, error: "payload_too_large" }, origin, allowedOrigin, 413);
+  }
+
+  let payload;
   try {
     payload = await request.json();
   } catch {
     return json({ ok: false, error: "invalid_json" }, origin, allowedOrigin, 400);
   }
 
-  const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
-  if (!Number.isFinite(shotMs)) {
-    return json({ ok: false, error: "invalid_shot_ms" }, origin, allowedOrigin, 400);
+  const result = await ingestPayload(payload, env);
+  if (!result.ok) {
+    return json(
+      { ok: false, error: result.error },
+      origin,
+      allowedOrigin,
+      result.status || 400
+    );
   }
-  await ingestPayload(payload, env);
+
   return new Response(null, {
     status: 204,
-    headers: {
-      ...corsHeaders(origin, allowedOrigin),
-      "Connection": "keep-alive",
-      "Keep-Alive": "timeout=30",
-    },
+    headers: corsHeaders(origin, allowedOrigin),
   });
 }
 
-export async function ingestPayload(payload, env) {
-  const prep = preparePayload(payload);
+export async function ingestPayload(payload, env, now = Date.now()) {
+  const prep = preparePayload(payload, now);
   if (!prep.ok) return prep;
-  if (!env.DB) {
-    return { ok: false, error: "DB not bound", status: 500 };
+  if (!env.DB) return { ok: false, error: "db_not_bound", status: 500 };
+
+  const inserted = await insertShot(prep, env);
+  if (inserted && env.SHOT_HUB) {
+    try {
+      await broadcastShot(buildHubMessage(prep), env);
+    } catch (error) {
+      console.log("broadcast_failed", error && error.message ? error.message : error);
+    }
   }
-  await processIngest(prep, env);
-  return { ok: true, created_at: prep.createdAtMs, id: prep.id };
+
+  return {
+    ok: true,
+    inserted,
+    created_at: prep.createdAtMs,
+    id: prep.id,
+  };
 }
 
-function preparePayload(payload) {
-  const shotMs = num(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
-  const shotEpochSec = num(payload.epoch ?? payload.ts);
-  const createdAtMs = shotEpochSec ? shotEpochSec * 1000 : Date.now();
-  const brewCounter = num(payload.brew_counter ?? payload.brewCounter);
-  const avgMs = num(payload.avg_ms ?? payload.avgMs);
-
-  if (!Number.isFinite(shotMs)) {
-    return { ok: false, error: "invalid_shot_ms", status: 400 };
+export function preparePayload(payload, now = Date.now()) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ok: false, error: "invalid_payload", status: 400 };
   }
 
-  const id = (Number.isFinite(brewCounter) && Number.isFinite(shotMs))
+  const shotMs = finiteNumber(payload.shot_ms ?? payload.ms ?? payload.duration_ms);
+  const shotEpochSec = finiteNumber(payload.epoch ?? payload.ts);
+  const brewCounter = optionalNumber(payload.brew_counter ?? payload.brewCounter);
+  const avgMs = optionalNumber(payload.avg_ms ?? payload.avgMs);
+
+  if (shotMs === null || shotMs <= 0 || shotMs > MAX_SHOT_MS) {
+    return { ok: false, error: "invalid_shot_ms", status: 400 };
+  }
+  if (brewCounter !== null && (!Number.isInteger(brewCounter) || brewCounter < 0)) {
+    return { ok: false, error: "invalid_brew_counter", status: 400 };
+  }
+  if (avgMs !== null && (avgMs < 0 || avgMs > MAX_SHOT_MS)) {
+    return { ok: false, error: "invalid_avg_ms", status: 400 };
+  }
+
+  const createdAtMs = shotEpochSec === null ? now : shotEpochSec * 1000;
+  if (
+    !Number.isFinite(createdAtMs) ||
+    createdAtMs < 0 ||
+    createdAtMs > now + MAX_FUTURE_DRIFT_MS ||
+    !Number.isFinite(new Date(createdAtMs).getTime())
+  ) {
+    return { ok: false, error: "invalid_timestamp", status: 400 };
+  }
+
+  let payloadJson;
+  try {
+    payloadJson = JSON.stringify(payload);
+  } catch {
+    return { ok: false, error: "invalid_payload", status: 400 };
+  }
+  if (new TextEncoder().encode(payloadJson).byteLength > MAX_INGEST_BYTES) {
+    return { ok: false, error: "payload_too_large", status: 413 };
+  }
+
+  const id = Number.isFinite(brewCounter)
     ? `${brewCounter}:${shotMs}:${createdAtMs}`
-    : String(createdAtMs);
+    : `${createdAtMs}:${shotMs}`;
 
   return {
     ok: true,
@@ -67,8 +114,21 @@ function preparePayload(payload) {
     shotMs,
     brewCounter,
     avgMs,
-    payloadJson: JSON.stringify(payload),
+    payloadJson,
   };
+}
+
+function finiteNumber(value) {
+  if (value === "" || value === null || value === undefined || typeof value === "boolean") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  return finiteNumber(value);
 }
 
 function buildHubMessage(prep) {
@@ -81,28 +141,17 @@ function buildHubMessage(prep) {
   });
 }
 
-async function processIngest(prep, env) {
-  await insertShot(prep, env);
-  if (env.SHOT_HUB) {
-    try {
-      await broadcastShot(buildHubMessage(prep), env);
-    } catch (e) {
-      // Keep ingest ACK successful after DB commit; realtime broadcast is best-effort.
-      console.log("broadcast_failed", e && e.message ? e.message : e);
-    }
-  }
-}
-
 async function broadcastShot(hubMessage, env) {
   const hub = env.SHOT_HUB.get(env.SHOT_HUB.idFromName(HUB_NAME));
-  await hub.fetch("https://hub/broadcast", {
+  const response = await hub.fetch("https://hub/broadcast", {
     method: "POST",
     body: hubMessage,
   });
+  if (!response.ok) throw new Error(`hub_broadcast_${response.status}`);
 }
 
 async function insertShot(prep, env) {
-  await env.DB.prepare(
+  const result = await env.DB.prepare(
     `INSERT OR IGNORE INTO shots (id, created_at, shot_ms, brew_counter, avg_ms, payload)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(
@@ -113,4 +162,5 @@ async function insertShot(prep, env) {
     prep.avgMs,
     prep.payloadJson
   ).run();
+  return Boolean(result && result.meta && result.meta.changes > 0);
 }
