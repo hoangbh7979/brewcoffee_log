@@ -6,7 +6,7 @@ export function createRealtimeController(options = {}) {
     onMessage = () => {},
     onEvent = () => {},
     isVisible = () => true,
-    timers = globalThis,
+    timers = typeof globalThis !== "undefined" ? globalThis : window,
     random = Math.random,
     connectionTimeoutMs = 6_500,
     heartbeatIntervalMs = 20_000,
@@ -247,12 +247,12 @@ function clientApp() {
   let refreshTimer = null;
 
   function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   function formatShot(ms) {
@@ -820,6 +820,7 @@ function clientApp() {
       elements.livePill.dataset.event = type;
       elements.livePill.title = "Realtime: " + type;
     },
+    timers: window,
     isVisible: () => document.visibilityState === "visible",
   });
 

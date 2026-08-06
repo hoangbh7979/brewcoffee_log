@@ -200,7 +200,7 @@ export function renderHomePage(model = {}) {
 
   <template id="initialState">${escapeHtml(JSON.stringify({ shots, analysis }))}</template>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script nonce="${scriptNonce}">(()=>{const fail=(kind)=>{const pill=document.getElementById("livePill"),label=document.getElementById("liveStatus");if(!pill||!label)return;pill.dataset.state="error";pill.dataset.event=kind;label.textContent="Client error";pill.title="Realtime bootstrap: "+kind;};window.addEventListener("error",()=>fail("error"));window.addEventListener("unhandledrejection",()=>fail("rejection"));})();</script>
+  <script nonce="${scriptNonce}">(()=>{const fail=(kind,detail)=>{const pill=document.getElementById("livePill"),label=document.getElementById("liveStatus");if(!pill||!label)return;const text=String(detail||kind).slice(0,96);pill.dataset.state="error";pill.dataset.event=kind;label.textContent="Client error · "+text;pill.title="Realtime bootstrap: "+text;};window.addEventListener("error",event=>fail("error",event.message||(event.error&&event.error.message)));window.addEventListener("unhandledrejection",event=>fail("rejection",event.reason&&(event.reason.message||event.reason)));})();</script>
   <script nonce="${scriptNonce}">${CLIENT_SCRIPT}</script>
 </body>
 </html>`;
