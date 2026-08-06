@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 
 import { renderHomePage } from "../src/page.js";
 import { CLIENT_SCRIPT } from "../src/page-client.js";
+import { PAGE_STYLES } from "../src/page-styles.js";
+
+test("hero preserves the original headline face and uses continuous orbital motion", () => {
+  assert.match(PAGE_STYLES, /\.hero h1 \{[\s\S]*?Georgia, "Times New Roman", serif;/);
+  assert.match(PAGE_STYLES, /\.planet-satellite-one \{[^}]*animation: satellite-orbit-outer 11s linear infinite;/);
+  assert.match(PAGE_STYLES, /\.planet-satellite-two \{[^}]*animation: satellite-orbit-inner 8\.5s linear infinite;/);
+  assert.doesNotMatch(PAGE_STYLES, /satellite-float|planet-drift/);
+});
 
 test("renderHomePage includes a paginated daily log, range controls, and an SSR trend chart", async () => {
   const rows = Array.from({ length: 12 }, (_, index) => ({

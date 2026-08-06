@@ -187,7 +187,7 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 }
 .hero h1 {
   margin: 26px 0 24px;
-  font: 400 clamp(62px, 7.2vw, 104px) / 0.91 var(--display-font);
+  font: 400 clamp(62px, 7.2vw, 104px) / 0.91 Georgia, "Times New Roman", serif;
   letter-spacing: -0.065em;
 }
 .hero h1 em { color: var(--accent); font-weight: 400; }
@@ -264,12 +264,15 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
   box-shadow: inset 0 0 80px rgba(0,0,0,.28);
   transform: rotate(-12deg);
 }
-.planet-ring { position: absolute; z-index: -1; display: block; border: 1px solid rgba(245,238,225,.15); border-radius: 50%; pointer-events: none; }
-.planet-ring-one { inset: 3%; transform: rotate(-25deg); animation: planet-drift 18s linear infinite; }
-.planet-ring-two { inset: 19%; border-style: dashed; opacity: .7; animation: planet-drift 13s linear infinite reverse; }
-.planet-satellite { position: absolute; z-index: 2; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(201,155,100,.1), 0 0 22px rgba(201,155,100,.9); }
-.planet-satellite-one { top: 17%; left: 22%; animation: satellite-float 5.5s ease-in-out infinite; }
-.planet-satellite-two { right: 18%; bottom: 25%; width: 6px; height: 6px; background: var(--green); box-shadow: 0 0 0 5px rgba(146,183,156,.08), 0 0 16px rgba(146,183,156,.7); animation: satellite-float 4.3s ease-in-out infinite reverse; }
+.planet-ring { position: absolute; z-index: -1; display: block; border: 1px solid rgba(245,238,225,.15); pointer-events: none; will-change: transform; }
+.planet-ring-one { inset: 3%; border-radius: 47% 53% 49% 51%; animation: planet-ring-outer 18s linear infinite; }
+.planet-ring-two { inset: 19%; border-style: dashed; border-radius: 53% 47% 52% 48%; opacity: .7; animation: planet-ring-inner 13s linear infinite; }
+.planet-satellite { position: absolute; z-index: 2; display: block; border-radius: 50%; pointer-events: none; will-change: transform; }
+.planet-satellite::after { content: ""; position: absolute; display: block; border-radius: 50%; }
+.planet-satellite-one { inset: 7%; animation: satellite-orbit-outer 11s linear infinite; }
+.planet-satellite-one::after { top: 50%; right: -4px; width: 9px; height: 9px; background: var(--accent); box-shadow: 0 0 0 5px rgba(201,155,100,.1), 0 0 22px rgba(201,155,100,.9); transform: translateY(-50%); }
+.planet-satellite-two { inset: 20%; animation: satellite-orbit-inner 8.5s linear infinite; }
+.planet-satellite-two::after { top: -3px; left: 50%; width: 6px; height: 6px; background: var(--green); box-shadow: 0 0 0 5px rgba(146,183,156,.08), 0 0 16px rgba(146,183,156,.7); transform: translateX(-50%); }
 .planet-core { width: 154px; height: 154px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid rgba(245,238,225,.17); border-radius: 50%; color: var(--cream); background: radial-gradient(circle at 35% 28%, rgba(237,205,163,.32), rgba(90,58,33,.66) 42%, rgba(12,10,8,.87) 72%); box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -25px 38px rgba(0,0,0,.42), 0 18px 40px rgba(0,0,0,.35), 0 0 42px rgba(201,155,100,.2); transform: rotate(-7deg); }
 .planet-core b { font: 400 57px/.8 Georgia, "Times New Roman", serif; letter-spacing: -.08em; }
 .planet-core small { color: rgba(243,238,230,.72); font: 700 9px/1.22 "Avenir Next", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
@@ -656,8 +659,10 @@ footer > a:last-child { justify-self: end; }
 @keyframes reveal { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { 50% { transform: scale(1.04) rotate(2deg); opacity: 1; } }
-@keyframes planet-drift { to { transform: rotate(360deg); } }
-@keyframes satellite-float { 50% { transform: translate(8px, -9px) scale(1.18); } }
+@keyframes planet-ring-outer { from { transform: rotate(-25deg); } to { transform: rotate(335deg); } }
+@keyframes planet-ring-inner { from { transform: rotate(18deg); } to { transform: rotate(-342deg); } }
+@keyframes satellite-orbit-outer { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes satellite-orbit-inner { from { transform: rotate(130deg); } to { transform: rotate(-230deg); } }
 @keyframes brand-glow { 50% { transform: scale(1.13); opacity: .72; } }
 @keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(146,183,156,0); } }
 @keyframes shimmer { to { background-position: -200% 0; } }

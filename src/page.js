@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "editorial-nav1";
+const ASSET_VERSION = "planet-orbit1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
