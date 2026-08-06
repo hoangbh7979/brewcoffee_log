@@ -56,6 +56,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.doesNotMatch(primaryNav[0], /header-brand|livePill/);
   assert.match(html, /class="brand-planet" role="img" aria-label="Espresso extraction target visual"/);
   assert.match(html, /class="planet-core" aria-hidden="true"><b>25<\/b><small>sec<br>target<\/small><\/span>/);
+  assert.doesNotMatch(html, /class="planet-readout"/);
   assert.match(html, /id="livePill" data-state="booting"/);
   assert.match(html, /id="liveStatus">Starting<\/span>/);
   assert.match(html, /Realtime bootstrap/);

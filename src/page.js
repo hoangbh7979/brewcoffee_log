@@ -74,7 +74,6 @@ export function renderHomePage(model = {}) {
           <span class="planet-satellite planet-satellite-one"></span>
           <span class="planet-satellite planet-satellite-two"></span>
           <span class="planet-core" aria-hidden="true"><b>25</b><small>sec<br>target</small></span>
-          <span class="planet-readout">25<small>s target</small></span>
         </div>
         <div class="floating-card floating-top">
           <span>Latest extraction</span>

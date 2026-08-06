@@ -273,8 +273,6 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 .planet-core { width: 154px; height: 154px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid rgba(245,238,225,.17); border-radius: 50%; color: var(--cream); background: radial-gradient(circle at 35% 28%, rgba(237,205,163,.32), rgba(90,58,33,.66) 42%, rgba(12,10,8,.87) 72%); box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -25px 38px rgba(0,0,0,.42), 0 18px 40px rgba(0,0,0,.35), 0 0 42px rgba(201,155,100,.2); transform: rotate(-7deg); }
 .planet-core b { font: 400 57px/.8 Georgia, "Times New Roman", serif; letter-spacing: -.08em; }
 .planet-core small { color: rgba(243,238,230,.72); font: 700 9px/1.22 "Avenir Next", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
-.planet-readout { position: absolute; right: 4%; bottom: 11%; display: inline-flex; align-items: baseline; gap: 6px; color: var(--cream); font: 400 25px/1 Georgia, serif; letter-spacing: -.04em; }
-.planet-readout small { color: var(--muted); font: 700 9px/1 "Avenir Next", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .brew-orbit {
   width: min(360px, 76vw);
   aspect-ratio: 1;
