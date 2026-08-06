@@ -210,7 +210,7 @@ function clientApp() {
     rows: [],
     total: 0,
     page: 1,
-    pagination: { page: 1, page_size: 12, page_count: 1 },
+    pagination: { page: 1, page_size: 5, page_count: 1 },
     daySummary: { total: 0, consistent: 0, consistency_percent: 0 },
     analysis: { total: 0, average_ms: 0, buckets: {}, daily: [] },
     window: { min_date: "", max_date: "" },
@@ -457,7 +457,7 @@ function clientApp() {
   }
 
   function normalizePagination(value, total) {
-    const pageSize = Math.max(1, Number(value && value.page_size) || 12);
+    const pageSize = Math.max(1, Number(value && value.page_size) || 5);
     const pageCount = Math.max(1, Number(value && value.page_count) || Math.ceil(total / pageSize) || 1);
     const page = Math.min(pageCount, Math.max(1, Number(value && value.page) || 1));
     return { page, page_size: pageSize, page_count: pageCount };

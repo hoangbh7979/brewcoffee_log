@@ -20,7 +20,7 @@ test("bucket mix reuses the planet language with interactive signal rows", () =>
 });
 
 test("renderHomePage includes a paginated daily log, range controls, and an SSR trend chart", async () => {
-  const rows = Array.from({ length: 12 }, (_, index) => ({
+  const rows = Array.from({ length: 5 }, (_, index) => ({
     id: String(index),
     created_at: Date.parse("2026-08-05T03:00:00Z") + index * 1000,
     shot_ms: 20_000 + index * 1000,
@@ -33,7 +33,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
     shots: {
       data: rows,
       total: 75,
-      pagination: { page: 2, page_size: 12, page_count: 7 },
+      pagination: { page: 2, page_size: 5, page_count: 15 },
       selected_date: "2026-08-05",
       bucket: "all",
       day_summary: { total: 75, consistent: 24, consistency_percent: 32 },
@@ -61,7 +61,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   const primaryNav = html.match(/<nav class="nav-shell"[\s\S]*?<\/nav>/);
 
   assert.ok(tableBody);
-  assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
+  assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 5);
   assert.match(html, /value="2026-08-05"/);
   assert.doesNotMatch(html, /class="brand-intro"/);
   assert.doesNotMatch(html, /class="header-kicker"/);
@@ -89,7 +89,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.match(html, /getElementById\("dateForm"\)/);
   assert.doesNotMatch(html, /id="previousDay"|id="nextDay"/);
   assert.match(html, /id="pagination"/);
-  assert.match(html, /id="pageSummary">Showing 13\u201324 of 75 shots/);
+  assert.match(html, /id="pageSummary">Showing 6\u201310 of 75 shots/);
   assert.match(html, /class="page-number active" href="\/\?date=2026-08-05&amp;page=2#shot-log" aria-current="page"/);
   assert.match(html, /href="\/\?date=2026-08-05&amp;page=3#shot-log" aria-label="Next page"/);
   assert.match(html, /id="metricSelectedDate">05 Aug</);
@@ -130,7 +130,7 @@ test("renderHomePage keeps small donut shares in the legend instead of overlappi
     nonce: "test-nonce",
     shots: {
       data: [], total: 0, selected_date: "2026-08-05", bucket: "all",
-      pagination: { page: 1, page_size: 12, page_count: 1 }, day_summary: {}, window: {},
+      pagination: { page: 1, page_size: 5, page_count: 1 }, day_summary: {}, window: {},
     },
     analysis: {
       total: 59, average_ms: 25_000, buckets: { under20: 21, "20to25": 37, "25to28": 1, "28to30": 0, over30: 0 },

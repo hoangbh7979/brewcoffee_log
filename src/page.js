@@ -227,7 +227,7 @@ function renderShotRows(rows) {
 function renderPagination(shots) {
   const total = Number(shots && shots.total) || 0;
   const meta = shots && shots.pagination ? shots.pagination : {};
-  const pageSize = Math.max(1, Number(meta.page_size) || 12);
+  const pageSize = Math.max(1, Number(meta.page_size) || 5);
   const pageCount = Math.max(1, Number(meta.page_count) || Math.ceil(total / pageSize) || 1);
   const page = Math.min(pageCount, Math.max(1, Number(meta.page) || 1));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;

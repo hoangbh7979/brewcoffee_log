@@ -6,7 +6,7 @@ import { clampInt } from "./format.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SHOT_COLUMNS = "id, created_at, shot_ms, brew_counter, avg_ms";
-export const SHOT_LOG_PAGE_SIZE = 12;
+export const SHOT_LOG_PAGE_SIZE = 5;
 
 export function bangkokDate(ms = Date.now()) {
   const shifted = new Date(ms + 7 * 60 * 60 * 1000);

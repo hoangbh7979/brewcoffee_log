@@ -70,9 +70,9 @@ test("analysis opens the current Bangkok day even when its latest D1 record is o
   assert.deepEqual(result.window, { min_date: "2026-01-10", max_date: "2026-10-10" });
 });
 
-test("getShotsForDate limits results to 12 rows and returns pagination metadata", async () => {
+test("getShotsForDate limits results to 5 rows and returns pagination metadata", async () => {
   const queryLog = [];
-  const rows = Array.from({ length: 12 }, (_, index) => ({
+  const rows = Array.from({ length: 5 }, (_, index) => ({
     id: String(index + 1),
     created_at: Date.parse("2026-07-01T01:00:00Z") + index * 1000,
     shot_ms: 21_000 + index * 100,
@@ -100,7 +100,7 @@ test("getShotsForDate limits results to 12 rows and returns pagination metadata"
 
   assert.deepEqual(result.data, rows);
   assert.equal(result.total, 25);
-  assert.deepEqual(result.pagination, { page: 2, page_size: 12, page_count: 3 });
+  assert.deepEqual(result.pagination, { page: 2, page_size: 5, page_count: 5 });
   assert.equal(result.day_summary.total, 31);
   assert.equal(result.day_summary.consistency_percent, 39);
   assert.deepEqual(result.window, { min_date: "2026-07-01", max_date: "2026-08-05" });
@@ -108,7 +108,7 @@ test("getShotsForDate limits results to 12 rows and returns pagination metadata"
   const summaryQuery = queryLog.find((entry) => entry.sql.includes("COUNT(CASE WHEN shot_ms >= 24000"));
   assert.match(rowQuery.sql, /shot_ms >= 20000 AND shot_ms < 25000/);
   assert.match(rowQuery.sql, /LIMIT \? OFFSET \?/);
-  assert.deepEqual(rowQuery.bindings.slice(-2), [12, 12]);
+  assert.deepEqual(rowQuery.bindings.slice(-2), [5, 5]);
   assert.match(summaryQuery.sql, /shot_ms >= 24000 AND shot_ms <= 27000/);
 });
 
