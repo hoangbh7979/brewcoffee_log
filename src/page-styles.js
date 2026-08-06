@@ -22,6 +22,7 @@ export const PAGE_STYLES = `
   --radius-md: 15px;
   --shadow: 0 28px 80px rgba(0, 0, 0, 0.32);
   --max: 1200px;
+  --display-font: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Baskerville, Georgia, serif;
 }
 
 * { box-sizing: border-box; }
@@ -65,21 +66,25 @@ button { color: inherit; }
 .header-layout {
   width: min(var(--max), calc(100vw - 48px));
   margin: 0 auto;
-}
-.nav-shell {
-  width: 100%;
-  min-height: 70px;
-  margin: 0;
-  padding: 7px 10px;
+  min-height: 76px;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 10px;
-  background: linear-gradient(100deg, rgba(27, 24, 20, .72), rgba(12, 11, 10, .48));
-  border: 1px solid rgba(245,238,225,.13);
-  border-radius: 999px;
-  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.2), inset 0 1px rgba(255,255,255,.025);
-  backdrop-filter: blur(24px) saturate(125%);
+  gap: 24px;
+}
+.nav-shell {
+  width: fit-content;
+  min-height: 54px;
+  margin: 0;
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  background: linear-gradient(120deg, rgba(30,27,23,.54), rgba(12,11,10,.26));
+  border: 1px solid rgba(245,238,225,.1);
+  border-radius: 19px;
+  box-shadow: 0 14px 38px rgba(0,0,0,.18), inset 0 1px rgba(255,255,255,.025);
+  backdrop-filter: blur(22px) saturate(115%);
 }
 .brand {
   width: fit-content;
@@ -105,29 +110,35 @@ button { color: inherit; }
 .header-brand img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: left center; }
 .nav-links { justify-self: center; display: flex; align-items: center; gap: 3px; }
 .nav-links a {
-  padding: 8px 17px;
-  border-radius: 999px;
+  min-height: 42px;
+  padding: 0 19px;
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  border-radius: 14px;
   color: var(--muted);
-  font: 400 16px/1.1 Georgia, "Times New Roman", serif;
-  letter-spacing: -.015em;
+  font: 400 17px/1.1 var(--display-font);
+  letter-spacing: -.01em;
   transition: color 180ms ease, background 180ms ease, transform 180ms ease;
 }
-.nav-links a:hover,
-.nav-links a.active { color: var(--ink); background: var(--cream); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
-.nav-links a:hover:not(.active) { color: var(--text); transform: translateY(-1px); }
+.nav-links a::after { content: ""; position: absolute; left: 50%; right: 50%; bottom: 6px; height: 1px; border-radius: 999px; background: linear-gradient(90deg, transparent, var(--accent), transparent); box-shadow: 0 0 10px rgba(201,155,100,.45); opacity: 0; transition: left 220ms ease, right 220ms ease, opacity 220ms ease; }
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,.025); transform: translateY(-1px); }
+.nav-links a.active { color: var(--cream); background: rgba(255,255,255,.04); }
+.nav-links a.active::after { left: 18px; right: 18px; opacity: 1; }
 .live-pill {
   justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid rgba(245,238,225,.14);
+  border: 1px solid rgba(245,238,225,.1);
   border-radius: 999px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .04em;
-  background: rgba(0,0,0,.13);
+  background: rgba(15,13,11,.24);
+  backdrop-filter: blur(18px);
 }
 .live-dot {
   width: 7px;
@@ -176,7 +187,7 @@ main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 }
 .hero h1 {
   margin: 26px 0 24px;
-  font: 400 clamp(62px, 7.2vw, 104px) / 0.91 Georgia, "Times New Roman", serif;
+  font: 400 clamp(62px, 7.2vw, 104px) / 0.91 var(--display-font);
   letter-spacing: -0.065em;
 }
 .hero h1 em { color: var(--accent); font-weight: 400; }
@@ -676,13 +687,13 @@ tbody tr:focus-visible {
 
 @media (max-width: 720px) {
   .site-header { padding: 10px 12px 0; }
-  .header-layout { width: 100%; }
-  .nav-shell { width: 100%; min-height: 56px; grid-template-columns: auto minmax(0, 1fr) auto; padding: 6px 9px; gap: 7px; }
-  .header-brand { width: 61px; height: 40px; padding-left: 0; }
+  .header-layout { width: 100%; min-height: 0; grid-template-columns: 1fr auto; grid-template-areas: "brand live" "nav nav"; gap: 8px 12px; }
+  .header-brand { grid-area: brand; width: 76px; height: 50px; padding-left: 0; }
+  .nav-shell { grid-area: nav; width: 100%; min-height: 52px; padding: 4px 6px; justify-self: stretch; }
   .nav-links { position: static; width: 100%; justify-self: start; padding: 0; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
   .nav-links::-webkit-scrollbar { display: none; }
-  .nav-links a { flex: 0 0 auto; padding: 8px 10px; font-size: 14px; }
-  .live-pill { display: inline-flex; justify-self: end; padding: 7px 9px; }
+  .nav-links a { flex: 1 0 auto; min-height: 42px; padding: 0 14px; justify-content: center; font-size: 16px; }
+  .live-pill { grid-area: live; display: inline-flex; justify-self: end; padding: 7px 9px; }
   main, footer { width: min(100% - 28px, var(--max)); }
   .hero { min-height: auto; padding: 82px 0 40px; }
   .hero h1 { font-size: clamp(52px, 15vw, 78px); }
@@ -721,8 +732,8 @@ tbody tr:focus-visible {
   .brand { font-size: 16px; }
   .live-pill { padding: 7px 8px; gap: 6px; font-size: 9px; }
   .live-dot { width: 6px; height: 6px; }
-  .header-brand { width: 53px; height: 35px; }
-  .nav-links a { padding: 8px 8px; font-size: 13px; }
+  .header-brand { width: 68px; height: 45px; }
+  .nav-links a { padding: 0 10px; font-size: 15px; }
   .hero-copy > p { font-size: 15px; }
   .hero-actions { display: grid; }
   .brand-planet { width: min(340px, 92vw); }

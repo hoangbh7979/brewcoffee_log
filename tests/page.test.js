@@ -43,6 +43,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   const html = await response.text();
   const tableBody = html.match(/<tbody id="shotsTable">([\s\S]*?)<\/tbody>/);
   const trendChart = html.match(/<div class="trend-chart" id="trendChart"[^>]*>([\s\S]*?)<\/div>/);
+  const primaryNav = html.match(/<nav class="nav-shell"[\s\S]*?<\/nav>/);
 
   assert.ok(tableBody);
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
@@ -51,6 +52,8 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.doesNotMatch(html, /class="header-kicker"/);
   assert.match(html, /class="header-brand" href="#overview" aria-label="UT-TAM Brew Coffee home"/);
   assert.match(html, /src="\/ut_tam_logo_dark\.png" width="152" height="100" alt="UT-TAM Brew Coffee"/);
+  assert.ok(primaryNav);
+  assert.doesNotMatch(primaryNav[0], /header-brand|livePill/);
   assert.match(html, /class="brand-planet" role="img" aria-label="Espresso extraction target visual"/);
   assert.match(html, /class="planet-core" aria-hidden="true"><b>25<\/b><small>sec<br>target<\/small><\/span>/);
   assert.match(html, /id="livePill" data-state="booting"/);

@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "header-logo1";
+const ASSET_VERSION = "editorial-nav1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -38,20 +38,20 @@ export function renderHomePage(model = {}) {
   <div class="ambient ambient-two" aria-hidden="true"></div>
   <header class="site-header" id="top">
     <div class="header-layout">
+      <a class="header-brand" href="#overview" aria-label="UT-TAM Brew Coffee home">
+        <img src="/ut_tam_logo_dark.png" width="152" height="100" alt="UT-TAM Brew Coffee">
+      </a>
       <nav class="nav-shell" aria-label="Primary navigation">
-        <a class="header-brand" href="#overview" aria-label="UT-TAM Brew Coffee home">
-          <img src="/ut_tam_logo_dark.png" width="152" height="100" alt="UT-TAM Brew Coffee">
-        </a>
         <div class="nav-links">
           <a href="#overview" data-nav="overview">Overview</a>
           <a href="#shot-log" data-nav="shot-log">Shot Log</a>
           <a href="#analysis" data-nav="analysis">Analysis</a>
         </div>
-        <div class="live-pill" id="livePill" data-state="booting" aria-live="polite">
-          <span class="live-dot"></span>
-          <span id="liveStatus">Starting</span>
-        </div>
       </nav>
+      <div class="live-pill" id="livePill" data-state="booting" aria-live="polite">
+        <span class="live-dot"></span>
+        <span id="liveStatus">Starting</span>
+      </div>
     </div>
   </header>
 
