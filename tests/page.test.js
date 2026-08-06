@@ -12,6 +12,13 @@ test("hero preserves the original headline face and uses continuous orbital moti
   assert.doesNotMatch(PAGE_STYLES, /satellite-float|planet-drift/);
 });
 
+test("bucket mix reuses the planet language with interactive signal rows", () => {
+  assert.match(PAGE_STYLES, /@keyframes donut-orbit-outer/);
+  assert.match(PAGE_STYLES, /@keyframes donut-orbit-inner/);
+  assert.match(PAGE_STYLES, /\.bucket-mix:has\(\.donut-legend-row/);
+  assert.match(CLIENT_SCRIPT, /data-donut-key=/);
+});
+
 test("renderHomePage includes a paginated daily log, range controls, and an SSR trend chart", async () => {
   const rows = Array.from({ length: 12 }, (_, index) => ({
     id: String(index),
@@ -97,6 +104,8 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.match(html, /id="analysisAll"[^>]*href="\/\?date=2026-08-05&amp;page=2&amp;analysis_all=1&amp;view=daily#analysis"/);
   assert.match(html, /id="bucketMix"/);
   assert.match(html, /class="donut-chart"/);
+  assert.match(html, /class="donut-orbit donut-orbit-one"/);
+  assert.match(html, /class="donut-orbit donut-orbit-two"/);
   assert.match(html, /class="chart-mode-link active"[^>]*view=daily/);
   assert.match(html, /view=daily/);
   assert.match(html, /<path class="pie-slice slice-under20"[^>]*fill="url\(#donut-slice-under20\)"/);
@@ -130,7 +139,7 @@ test("renderHomePage keeps small donut shares in the legend instead of overlappi
 
   assert.doesNotMatch(html, /pie-callout/);
   assert.doesNotMatch(html, /pie-slice-label[^>]*>2%<\/text>/);
-  assert.match(html, /25–28s<\/span><strong>2%<small>1 shot<\/small>/);
+  assert.match(html, /data-donut-key="25to28"[\s\S]*?class="donut-legend-label"[\s\S]*?25–28s<\/span><span class="donut-legend-value"><strong>2%<\/strong><small>1 shot<\/small>/);
 });
 
 test("renderHomePage defaults to a fixed-axis shot timeline", async () => {

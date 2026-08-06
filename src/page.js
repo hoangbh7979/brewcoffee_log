@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "planet-orbit1";
+const ASSET_VERSION = "data-planet1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -411,7 +411,8 @@ function renderBucketMix(analysis) {
   const slices = segments.map(({ index, key, label, count, start, end, span }) => {
     if (span <= 0) return "";
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
-    return `<path class="pie-slice slice-${key}" style="--slice-delay:${index * 70}ms" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start, end)}" fill="url(#donut-slice-${key})"><title>${escapeHtml(label)} · ${count} shots · ${percent}%</title></path>`;
+    const gap = Math.min(1.2, span * 0.08);
+    return `<path class="pie-slice slice-${key}" style="--slice-delay:${index * 70}ms" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start + gap / 2, end - gap / 2)}" fill="url(#donut-slice-${key})"><title>${escapeHtml(label)} · ${count} shots · ${percent}%</title></path>`;
   }).join("");
   const labels = segments.map(({ count, start, span }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
@@ -420,11 +421,14 @@ function renderBucketMix(analysis) {
     const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
     return `<text class="pie-slice-label" x="${point.x.toFixed(2)}" y="${(point.y + 3).toFixed(2)}" text-anchor="middle">${percent}%</text>`;
   }).join("");
-  const legend = segments.map(({ label, color, count }) => {
+  const legend = segments.map(({ index, key, label, color, count }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
-    return `<div class="donut-legend-row"><span><i style="background:${color}"></i>${escapeHtml(label)}</span><strong>${percent}%<small>${count} ${count === 1 ? "shot" : "shots"}</small></strong></div>`;
+    const shotLabel = `${count} ${count === 1 ? "shot" : "shots"}`;
+    return `<button class="donut-legend-row" type="button" data-donut-key="${key}" style="--legend-color:${color};--legend-delay:${index * 55}ms" aria-label="${escapeHtml(label)}: ${percent}%, ${shotLabel}"><span class="donut-legend-label"><i></i>${escapeHtml(label)}</span><span class="donut-legend-value"><strong>${percent}%</strong><small>${shotLabel}</small></span></button>`;
   }).join("");
   return `<div class="donut-shell">
+    <span class="donut-orbit donut-orbit-one" aria-hidden="true"></span>
+    <span class="donut-orbit donut-orbit-two" aria-hidden="true"></span>
     <svg class="donut-chart" viewBox="0 0 264 244" role="img" aria-label="Shot distribution by extraction time">
       ${renderDonutDefs()}
       <circle class="donut-aura" cx="${cx}" cy="${cy}" r="124"></circle>
@@ -450,7 +454,7 @@ function renderDonutDefs() {
     <linearGradient id="donut-slice-25to28" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#c0dec5"></stop><stop offset=".54" stop-color="#92b79c"></stop><stop offset="1" stop-color="#668d72"></stop></linearGradient>
     <linearGradient id="donut-slice-28to30" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#ecc998"></stop><stop offset=".54" stop-color="#c99b64"></stop><stop offset="1" stop-color="#9c7044"></stop></linearGradient>
     <linearGradient id="donut-slice-over30" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#ebbbb2"></stop><stop offset=".54" stop-color="#d08c7d"></stop><stop offset="1" stop-color="#9e5e55"></stop></linearGradient>
-    <filter id="donut-depth" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#000" flood-opacity=".48"></feDropShadow><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#fff" flood-opacity=".14"></feDropShadow></filter>
+    <filter id="donut-depth" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".3"></feDropShadow><feDropShadow dx="0" dy="-1" stdDeviation="1.5" flood-color="#fff" flood-opacity=".12"></feDropShadow></filter>
   </defs>`;
 }
 
