@@ -866,4 +866,7 @@ function clientApp() {
 
 }
 
-export const CLIENT_SCRIPT = `const createRealtimeController = ${createRealtimeController.toString()};\n(${clientApp.toString()})();`;
+// Wrangler's server bundle annotates function names with __name(...). The
+// dashboard script is serialized into HTML, so provide the no-op browser-side
+// helper explicitly instead of depending on the server bundle's private scope.
+export const CLIENT_SCRIPT = `const __name = (target) => target;\nconst createRealtimeController = ${createRealtimeController.toString()};\n(${clientApp.toString()})();`;

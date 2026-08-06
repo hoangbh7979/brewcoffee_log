@@ -88,6 +88,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.match(trendChart[1], /class="trend-line"/);
   assert.equal((trendChart[1].match(/class="trend-point"/g) || []).length, 3);
   assert.match(html, /<script nonce="test-nonce">/);
+  assert.match(html, /const __name = \(target\) => target;/);
   assert.match(html, /const createRealtimeController = function createRealtimeController/);
   assert.doesNotThrow(() => new Function(CLIENT_SCRIPT));
   assert.doesNotMatch(html, /src="\/assets\/app\.js/);
