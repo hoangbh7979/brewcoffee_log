@@ -46,8 +46,10 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
   assert.match(html, /value="2026-08-05"/);
   assert.match(html, /class="brand brand-ut-tam"[^>]*>\s*<img src="\/ut_tam_logo_dark\.png"[^>]*alt="UT-TAM Brew Coffee">/);
-  assert.match(html, /rel="icon" type="image\/png" sizes="1024x1024" href="\/favicon_newlogo_zoom\.png\?v=6"/);
-  assert.match(html, /rel="shortcut icon" type="image\/png" href="\/favicon_newlogo_zoom\.png\?v=6"/);
+  assert.match(html, /rel="icon" type="image\/png" sizes="1024x1024" href="\/favicon_logo2_transparent\.png\?v=7"/);
+  assert.match(html, /rel="icon" type="image\/x-icon" href="\/favicon\.ico\?v=7" sizes="any"/);
+  assert.match(html, /rel="shortcut icon" type="image\/png" href="\/favicon_logo2_transparent\.png\?v=7"/);
+  assert.match(html, /rel="apple-touch-icon" sizes="1024x1024" href="\/favicon_logo2_transparent\.png\?v=7"/);
   assert.match(html, /class="header-layout"[\s\S]*class="nav-shell"/);
   assert.match(html, /class="chart-scroll-hint"/);
   assert.match(html, /id="dateForm" method="get"/);

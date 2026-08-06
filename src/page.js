@@ -27,9 +27,10 @@ export function renderHomePage(model = {}) {
   <meta name="theme-color" content="#0b0a09">
   <meta name="description" content="A refined realtime shot log for the Casadio Undici espresso machine.">
   <title>BrewLedger — Casadio Shot Log</title>
-  <link rel="icon" type="image/png" sizes="1024x1024" href="/favicon_newlogo_zoom.png?v=6">
-  <link rel="shortcut icon" type="image/png" href="/favicon_newlogo_zoom.png?v=6">
-  <link rel="apple-touch-icon" href="/favicon_newlogo_zoom.png?v=6">
+  <link rel="icon" type="image/png" sizes="1024x1024" href="/favicon_logo2_transparent.png?v=7">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=7" sizes="any">
+  <link rel="shortcut icon" type="image/png" href="/favicon_logo2_transparent.png?v=7">
+  <link rel="apple-touch-icon" sizes="1024x1024" href="/favicon_logo2_transparent.png?v=7">
   <link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION}">
 </head>
 <body>
