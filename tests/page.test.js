@@ -14,6 +14,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   }));
   const response = renderHomePage({
     nonce: "test-nonce",
+    view: "daily",
     shots: {
       data: rows,
       total: 75,
@@ -29,7 +30,7 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
       consistent: 800,
       consistency_percent: 36,
       consistency_30d_percent: 32,
-      buckets: { under20: 500, "20to25": 450, "25to28": 600, "28to30": 400, over30: 259 },
+      buckets: { under20: 500, "20to25": 450, "25to28": 600, "28to30": 400, over30: 44 },
       daily: [
         { date: "2026-01-10", count: 12, average_ms: 24_500, consistency_percent: 42 },
         { date: "2026-04-20", count: 15, average_ms: 25_500, consistency_percent: 47 },
@@ -46,7 +47,10 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.ok(tableBody);
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
   assert.match(html, /value="2026-08-05"/);
-  assert.match(html, /class="brand brand-ut-tam"[^>]*>\s*<img src="\/ut_tam_logo_dark\.png"[^>]*alt="UT-TAM Brew Coffee">/);
+  assert.doesNotMatch(html, /class="brand brand-ut-tam"/);
+  assert.match(html, /class="brand-intro"/);
+  assert.match(html, /class="brand-planet" role="img" aria-label="UT-TAM Brew Coffee brand mark"/);
+  assert.match(html, /class="header-kicker"/);
   assert.match(html, /id="livePill" data-state="booting"/);
   assert.match(html, /id="liveStatus">Starting<\/span>/);
   assert.match(html, /Realtime bootstrap/);
@@ -76,13 +80,15 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.match(html, /id="analysisDateForm" method="get" action="\/#analysis"/);
   assert.match(html, /name="analysis_start"/);
   assert.match(html, /name="analysis_end"/);
-  assert.match(html, /id="analysisAll"[^>]*href="\/\?date=2026-08-05&amp;page=2&amp;analysis_all=1#analysis"/);
+  assert.match(html, /id="analysisAll"[^>]*href="\/\?date=2026-08-05&amp;page=2&amp;analysis_all=1&amp;view=daily#analysis"/);
   assert.match(html, /id="bucketMix"/);
   assert.match(html, /class="donut-chart"/);
-  assert.match(html, /class="chart-mode-link active"/);
-  assert.match(html, /view=shots/);
-  assert.match(html, /<path class="pie-slice"[^>]*fill="#899eb7"/);
+  assert.match(html, /class="chart-mode-link active"[^>]*view=daily/);
+  assert.match(html, /view=daily/);
+  assert.match(html, /<path class="pie-slice slice-under20"[^>]*fill="url\(#donut-slice-under20\)"/);
+  assert.match(html, /<filter id="donut-depth"/);
   assert.match(html, /class="pie-slice-label"/);
+  assert.doesNotMatch(html, /class="pie-callout"/);
   assert.ok(trendChart);
   assert.match(trendChart[1], /<svg /);
   assert.match(trendChart[1], /class="trend-line"/);
@@ -94,10 +100,28 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.doesNotMatch(html, /src="\/assets\/app\.js/);
 });
 
-test("renderHomePage renders a fixed-axis shot timeline when selected", async () => {
+test("renderHomePage keeps small donut shares in the legend instead of overlapping the chart", async () => {
   const response = renderHomePage({
     nonce: "test-nonce",
-    view: "shots",
+    shots: {
+      data: [], total: 0, selected_date: "2026-08-05", bucket: "all",
+      pagination: { page: 1, page_size: 12, page_count: 1 }, day_summary: {}, window: {},
+    },
+    analysis: {
+      total: 59, average_ms: 25_000, buckets: { under20: 21, "20to25": 37, "25to28": 1, "28to30": 0, over30: 0 },
+      daily: [], range: {}, window: {},
+    },
+  });
+  const html = await response.text();
+
+  assert.doesNotMatch(html, /pie-callout/);
+  assert.doesNotMatch(html, /pie-slice-label[^>]*>2%<\/text>/);
+  assert.match(html, /25–28s<\/span><strong>2%<small>1 shot<\/small>/);
+});
+
+test("renderHomePage defaults to a fixed-axis shot timeline", async () => {
+  const response = renderHomePage({
+    nonce: "test-nonce",
     shots: {
       data: [],
       total: 0,
@@ -124,7 +148,7 @@ test("renderHomePage renders a fixed-axis shot timeline when selected", async ()
   const html = await response.text();
   const scatterMarkup = html.match(/<div class="trend-chart" id="trendChart"[^>]*>([\s\S]*?)<\/div>/);
   assert.ok(scatterMarkup);
-  assert.match(html, /class="chart-mode-link active"[^>]*view=shots/);
+  assert.match(html, /class="chart-mode-link active"[^>]*>.*By shot/);
   assert.match(html, /class="scatter-chart"/);
   assert.match(html, />0s</);
   assert.match(html, />40s</);

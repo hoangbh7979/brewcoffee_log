@@ -57,7 +57,7 @@ async function routeRequest(request, env) {
   if (url.pathname === "/") {
     if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
     if (!env.DB) return new Response("DB not bound", { status: 500 });
-    const view = url.searchParams.get("view") || "daily";
+    const view = url.searchParams.get("view") === "daily" ? "daily" : "shots";
     const [shots, analysis] = await Promise.all([
       getShotsForDate(env, {
         date: url.searchParams.get("date") || "",

@@ -217,7 +217,7 @@ function clientApp() {
     analysisRange: { start_date: "", end_date: "" },
     analysisWindow: { min_date: "", max_date: "" },
     analysisAllHistory: true,
-    chartMode: new URL(location.href).searchParams.get("view") === "shots" ? "shots" : "daily",
+    chartMode: new URL(location.href).searchParams.get("view") === "daily" ? "daily" : "shots",
   };
 
   const elements = {
@@ -603,26 +603,30 @@ function clientApp() {
     const slices = segments.map(({ index, bucket, count, start, end, span }) => {
       if (span <= 0) return "";
       const path = pieSlicePath(cx, cy, outerRadius, innerRadius, start, end);
-      return '<path class="pie-slice" style="--slice-delay:' + (index * 70) + 'ms" d="' + path + '" fill="' + bucket.color + '"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots</title></path>';
-    }).join("");
-    const labels = segments.map(({ bucket, count, start, span }) => {
       const percent = total > 0 ? Math.round(count * 100 / total) : 0;
-      if (span <= 0) return "";
+      return '<path class="pie-slice slice-' + bucket.key + '" style="--slice-delay:' + (index * 70) + 'ms" d="' + path + '" fill="url(#donut-slice-' + bucket.key + ')"><title>' + escapeHtml(bucket.label) + ' · ' + count + ' shots · ' + percent + '%</title></path>';
+    }).join("");
+    const labels = segments.map(({ count, start, span }) => {
+      const percent = total > 0 ? Math.round(count * 100 / total) : 0;
+      if (span <= 0 || percent < 8) return "";
       const mid = start + span / 2;
       const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
-      return '<text class="pie-slice-label' + (percent < 8 ? ' compact' : '') + '" x="' + point.x.toFixed(2) + '" y="' + (point.y + 3).toFixed(2) + '" text-anchor="middle">' + percent + '%</text>';
+      return '<text class="pie-slice-label" x="' + point.x.toFixed(2) + '" y="' + (point.y + 3).toFixed(2) + '" text-anchor="middle">' + percent + '%</text>';
     }).join("");
     const legend = segments.map(({ bucket, count }) => {
       const percent = total > 0 ? Math.round(count * 100 / total) : 0;
-      return '<div class="donut-legend-row"><span><i style="background:' + bucket.color + '"></i>' + escapeHtml(bucket.label) + '</span><strong>' + percent + '%</strong></div>';
+      return '<div class="donut-legend-row"><span><i style="background:' + bucket.color + '"></i>' + escapeHtml(bucket.label) + '</span><strong>' + percent + '%<small>' + count + ' ' + (count === 1 ? 'shot' : 'shots') + '</small></strong></div>';
     }).join("");
-    return '<div class="donut-shell"><svg class="donut-chart" viewBox="0 0 264 244" role="img" aria-label="Shot distribution by extraction time">' +
-      '<circle class="donut-track" cx="' + cx + '" cy="' + cy + '" r="' + outerRadius + '"></circle>' +
-      slices + labels +
-      '<circle class="donut-hole" cx="' + cx + '" cy="' + cy + '" r="' + innerRadius + '"></circle>' +
+    return '<div class="donut-shell"><svg class="donut-chart" viewBox="0 0 264 244" role="img" aria-label="Shot distribution by extraction time">' + donutDefsMarkup() +
+      '<circle class="donut-aura" cx="' + cx + '" cy="' + cy + '" r="124"></circle><circle class="donut-track" cx="' + cx + '" cy="' + cy + '" r="' + outerRadius + '"></circle><g class="donut-slices" filter="url(#donut-depth)">' + slices + '</g>' + labels +
+      '<circle class="donut-rim" cx="' + cx + '" cy="' + cy + '" r="' + outerRadius + '"></circle><circle class="donut-hole" cx="' + cx + '" cy="' + cy + '" r="' + innerRadius + '"></circle><circle class="donut-hole-ring" cx="' + cx + '" cy="' + cy + '" r="' + (innerRadius - 4) + '"></circle>' +
       '<text class="donut-total" x="' + cx + '" y="' + (cy - 3) + '" text-anchor="middle">' + total + '</text>' +
       '<text class="donut-caption" x="' + cx + '" y="' + (cy + 19) + '" text-anchor="middle">shots</text></svg></div>' +
       '<div class="donut-legend">' + legend + '</div>';
+  }
+
+  function donutDefsMarkup() {
+    return '<defs><radialGradient id="donut-aura" cx="50%" cy="45%" r="65%"><stop offset="0" stop-color="#c99b64" stop-opacity=".22"></stop><stop offset=".52" stop-color="#8b6b4e" stop-opacity=".06"></stop><stop offset="1" stop-color="#171513" stop-opacity="0"></stop></radialGradient><radialGradient id="donut-core" cx="42%" cy="34%" r="76%"><stop offset="0" stop-color="#302a25"></stop><stop offset=".72" stop-color="#171513"></stop><stop offset="1" stop-color="#0e0d0c"></stop></radialGradient><linearGradient id="donut-slice-under20" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#c6d6e8"></stop><stop offset=".54" stop-color="#899eb7"></stop><stop offset="1" stop-color="#5d7692"></stop></linearGradient><linearGradient id="donut-slice-20to25" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#e5d3b6"></stop><stop offset=".54" stop-color="#b49f82"></stop><stop offset="1" stop-color="#84745e"></stop></linearGradient><linearGradient id="donut-slice-25to28" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#c0dec5"></stop><stop offset=".54" stop-color="#92b79c"></stop><stop offset="1" stop-color="#668d72"></stop></linearGradient><linearGradient id="donut-slice-28to30" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#ecc998"></stop><stop offset=".54" stop-color="#c99b64"></stop><stop offset="1" stop-color="#9c7044"></stop></linearGradient><linearGradient id="donut-slice-over30" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#ebbbb2"></stop><stop offset=".54" stop-color="#d08c7d"></stop><stop offset="1" stop-color="#9e5e55"></stop></linearGradient><filter id="donut-depth" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#000" flood-opacity=".48"></feDropShadow><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#fff" flood-opacity=".14"></feDropShadow></filter></defs>';
   }
 
   function polarPoint(cx, cy, radius, angle) {

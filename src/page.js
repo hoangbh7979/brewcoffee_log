@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "mobile3";
+const ASSET_VERSION = "planet1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -18,7 +18,7 @@ export function renderHomePage(model = {}) {
   const analysisTotal = analysis ? Number(analysis.total) || 0 : 0;
   const analysisAverage = analysis ? formatShot(analysis.average_ms) : "—";
   const consistency30d = analysis ? Number(analysis.consistency_30d_percent) || 0 : 0;
-  const chartMode = model.view === "shots" ? "shots" : "daily";
+  const chartMode = model.view === "daily" ? "daily" : "shots";
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -36,13 +36,20 @@ export function renderHomePage(model = {}) {
 <body>
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
+  <div class="brand-intro" aria-hidden="true">
+    <div class="brand-planet brand-planet-intro">
+      <span class="planet-ring planet-ring-one"></span>
+      <span class="planet-ring planet-ring-two"></span>
+      <span class="planet-satellite planet-satellite-one"></span>
+      <span class="planet-satellite planet-satellite-two"></span>
+      <div class="planet-logo-wrap"><img src="/ut_tam_logo_dark.png" width="320" height="160" alt=""></div>
+    </div>
+  </div>
 
   <header class="site-header" id="top">
     <div class="header-layout">
-      <a class="brand brand-ut-tam" href="#overview" aria-label="UT-TAM Brew Coffee home">
-        <img src="/ut_tam_logo_dark.png" width="110" height="72" alt="UT-TAM Brew Coffee">
-      </a>
       <nav class="nav-shell" aria-label="Primary navigation">
+        <a class="header-kicker" href="#overview" aria-label="UT-TAM Brew Coffee home"><i></i><span>Shot log</span></a>
         <div class="nav-links">
           <a href="#overview" data-nav="overview">Overview</a>
           <a href="#shot-log" data-nav="shot-log">Shot Log</a>
@@ -69,10 +76,13 @@ export function renderHomePage(model = {}) {
       </div>
 
       <div class="hero-visual reveal" aria-label="Live brew summary">
-        <div class="brew-orbit" aria-hidden="true">
-          <span class="orbit orbit-one"></span>
-          <span class="orbit orbit-two"></span>
-          <span class="orbit-core">25<small>sec</small></span>
+        <div class="brand-planet" role="img" aria-label="UT-TAM Brew Coffee brand mark">
+          <span class="planet-ring planet-ring-one"></span>
+          <span class="planet-ring planet-ring-two"></span>
+          <span class="planet-satellite planet-satellite-one"></span>
+          <span class="planet-satellite planet-satellite-two"></span>
+          <div class="planet-logo-wrap"><img src="/ut_tam_logo_dark.png" width="320" height="160" alt="UT-TAM Brew Coffee"></div>
+          <span class="planet-readout">25<small>s target</small></span>
         </div>
         <div class="floating-card floating-top">
           <span>Latest extraction</span>
@@ -303,7 +313,7 @@ function renderDateControls(selectedDate, dateWindow, bucket) {
   </form>`;
 }
 
-function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMode = "daily", selectedPage = 1) {
+function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMode = "shots", selectedPage = 1) {
   const safeRange = range || { start_date: "", end_date: "" };
   const safeWindow = dateWindow || { min_date: "", max_date: "" };
   const resetParams = new URLSearchParams();
@@ -311,7 +321,7 @@ function renderAnalysisControls(range, dateWindow, selectedDate, bucket, chartMo
   if (bucket && bucket !== "all") resetParams.set("bucket", bucket);
   if (Number(selectedPage) > 1) resetParams.set("page", String(selectedPage));
   resetParams.set("analysis_all", "1");
-  if (chartMode === "shots") resetParams.set("view", "shots");
+  if (chartMode === "daily") resetParams.set("view", "daily");
   const resetHref = "/" + (resetParams.toString() ? "?" + resetParams.toString() : "") + "#analysis";
   return `<form class="analysis-date-controls" id="analysisDateForm" method="get" action="/#analysis">
     <input type="hidden" name="date" value="${escapeHtml(selectedDate)}">
@@ -335,11 +345,11 @@ function renderChartModeControls(chartMode, selectedDate, bucket, range, selecte
     if (Number(selectedPage) > 1) params.set("page", String(selectedPage));
     if (safeRange.start_date) params.set("analysis_start", safeRange.start_date);
     if (safeRange.end_date) params.set("analysis_end", safeRange.end_date);
-    if (view === "shots") params.set("view", "shots");
+    if (view === "daily") params.set("view", "daily");
     return `/${params.toString() ? `?${params.toString()}` : ""}#analysis`;
   };
   const option = (view, label) => `<a class="chart-mode-link${chartMode === view ? " active" : ""}" href="${escapeHtml(hrefFor(view))}"${chartMode === view ? ' aria-current="page"' : ""}><i aria-hidden="true"></i><span>${label}</span></a>`;
-  return `<div class="chart-mode" aria-label="Chart view">${option("daily", "By day")}${option("shots", "By shot")}</div>`;
+  return `<div class="chart-mode" aria-label="Chart view">${option("shots", "By shot")}${option("daily", "By day")}</div>`;
 }
 
 function shiftDateText(dateText, days) {
@@ -407,32 +417,50 @@ function renderBucketMix(analysis) {
     angle = end;
     return { index, key, label, color, count, start, end, span };
   });
-  const slices = segments.map(({ index, label, color, count, start, end, span }) => {
+  const slices = segments.map(({ index, key, label, count, start, end, span }) => {
     if (span <= 0) return "";
-    return `<path class="pie-slice" style="--slice-delay:${index * 70}ms" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start, end)}" fill="${color}"><title>${escapeHtml(label)} · ${count} shots</title></path>`;
-  }).join("");
-  const labels = segments.map(({ label, count, start, span }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
-    if (span <= 0) return "";
+    return `<path class="pie-slice slice-${key}" style="--slice-delay:${index * 70}ms" d="${pieSlicePath(cx, cy, outerRadius, innerRadius, start, end)}" fill="url(#donut-slice-${key})"><title>${escapeHtml(label)} · ${count} shots · ${percent}%</title></path>`;
+  }).join("");
+  const labels = segments.map(({ count, start, span }) => {
+    const percent = total > 0 ? Math.round(count * 100 / total) : 0;
+    if (span <= 0 || percent < 8) return "";
     const mid = start + span / 2;
     const point = polarPoint(cx, cy, (outerRadius + innerRadius) / 2, mid);
-    return `<text class="pie-slice-label${percent < 8 ? " compact" : ""}" x="${point.x.toFixed(2)}" y="${(point.y + 3).toFixed(2)}" text-anchor="middle">${percent}%</text>`;
+    return `<text class="pie-slice-label" x="${point.x.toFixed(2)}" y="${(point.y + 3).toFixed(2)}" text-anchor="middle">${percent}%</text>`;
   }).join("");
   const legend = segments.map(({ label, color, count }) => {
     const percent = total > 0 ? Math.round(count * 100 / total) : 0;
-    return `<div class="donut-legend-row"><span><i style="background:${color}"></i>${escapeHtml(label)}</span><strong>${percent}%</strong></div>`;
+    return `<div class="donut-legend-row"><span><i style="background:${color}"></i>${escapeHtml(label)}</span><strong>${percent}%<small>${count} ${count === 1 ? "shot" : "shots"}</small></strong></div>`;
   }).join("");
   return `<div class="donut-shell">
     <svg class="donut-chart" viewBox="0 0 264 244" role="img" aria-label="Shot distribution by extraction time">
+      ${renderDonutDefs()}
+      <circle class="donut-aura" cx="${cx}" cy="${cy}" r="124"></circle>
       <circle class="donut-track" cx="${cx}" cy="${cy}" r="${outerRadius}"></circle>
-      ${slices}
+      <g class="donut-slices" filter="url(#donut-depth)">${slices}</g>
       ${labels}
+      <circle class="donut-rim" cx="${cx}" cy="${cy}" r="${outerRadius}"></circle>
       <circle class="donut-hole" cx="${cx}" cy="${cy}" r="${innerRadius}"></circle>
+      <circle class="donut-hole-ring" cx="${cx}" cy="${cy}" r="${innerRadius - 4}"></circle>
       <text class="donut-total" x="${cx}" y="${cy - 3}" text-anchor="middle">${total}</text>
       <text class="donut-caption" x="${cx}" y="${cy + 19}" text-anchor="middle">shots</text>
     </svg>
   </div>
   <div class="donut-legend">${legend}</div>`;
+}
+
+function renderDonutDefs() {
+  return `<defs>
+    <radialGradient id="donut-aura" cx="50%" cy="45%" r="65%"><stop offset="0" stop-color="#c99b64" stop-opacity=".22"></stop><stop offset=".52" stop-color="#8b6b4e" stop-opacity=".06"></stop><stop offset="1" stop-color="#171513" stop-opacity="0"></stop></radialGradient>
+    <radialGradient id="donut-core" cx="42%" cy="34%" r="76%"><stop offset="0" stop-color="#302a25"></stop><stop offset=".72" stop-color="#171513"></stop><stop offset="1" stop-color="#0e0d0c"></stop></radialGradient>
+    <linearGradient id="donut-slice-under20" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#c6d6e8"></stop><stop offset=".54" stop-color="#899eb7"></stop><stop offset="1" stop-color="#5d7692"></stop></linearGradient>
+    <linearGradient id="donut-slice-20to25" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#e5d3b6"></stop><stop offset=".54" stop-color="#b49f82"></stop><stop offset="1" stop-color="#84745e"></stop></linearGradient>
+    <linearGradient id="donut-slice-25to28" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#c0dec5"></stop><stop offset=".54" stop-color="#92b79c"></stop><stop offset="1" stop-color="#668d72"></stop></linearGradient>
+    <linearGradient id="donut-slice-28to30" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#ecc998"></stop><stop offset=".54" stop-color="#c99b64"></stop><stop offset="1" stop-color="#9c7044"></stop></linearGradient>
+    <linearGradient id="donut-slice-over30" x1=".1" y1="0" x2=".92" y2="1"><stop offset="0" stop-color="#ebbbb2"></stop><stop offset=".54" stop-color="#d08c7d"></stop><stop offset="1" stop-color="#9e5e55"></stop></linearGradient>
+    <filter id="donut-depth" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#000" flood-opacity=".48"></feDropShadow><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#fff" flood-opacity=".14"></feDropShadow></filter>
+  </defs>`;
 }
 
 function polarPoint(cx, cy, radius, angle) {
@@ -458,7 +486,7 @@ function renderAnalysisPeriod(analysis) {
   return `${label} · ${formatDateLabel(range.start_date)} → ${formatDateLabel(range.end_date)} · ${Number(analysis.total) || 0} shots · ${Number(analysis.consistency_percent) || 0}% consistent at 24–27s`;
 }
 
-function renderTrendChart(analysis, mode = "daily") {
+function renderTrendChart(analysis, mode = "shots") {
   if (mode === "shots") return renderShotScatterChart(analysis);
   const rows = analysis && Array.isArray(analysis.daily)
     ? analysis.daily.filter((row) => Number.isFinite(Number(row.average_ms)))
