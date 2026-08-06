@@ -1,3 +1,178 @@
+export function createRealtimeController(options = {}) {
+  const {
+    socketFactory,
+    setStatus = () => {},
+    refresh = () => {},
+    onMessage = () => {},
+    isVisible = () => true,
+    timers = globalThis,
+    random = Math.random,
+    connectionTimeoutMs = 6_500,
+    heartbeatIntervalMs = 20_000,
+    pollIntervalMs = 15_000,
+    retryInitialMs = 500,
+    retryMaxMs = 8_000,
+  } = options;
+
+  if (typeof socketFactory !== "function") {
+    throw new TypeError("socketFactory must be a function");
+  }
+
+  const setTimer = timers.setTimeout.bind(timers);
+  const clearTimer = timers.clearTimeout.bind(timers);
+  const setRepeatingTimer = timers.setInterval.bind(timers);
+  const clearRepeatingTimer = timers.clearInterval.bind(timers);
+  const SOCKET_CONNECTING = 0;
+  const SOCKET_OPEN = 1;
+
+  let socket = null;
+  let retryTimer = null;
+  let connectTimer = null;
+  let heartbeatTimer = null;
+  let pollTimer = null;
+  let retryDelay = retryInitialMs;
+  let stopped = true;
+
+  function clearConnectTimer() {
+    if (connectTimer === null) return;
+    clearTimer(connectTimer);
+    connectTimer = null;
+  }
+
+  function clearHeartbeatTimer() {
+    if (heartbeatTimer === null) return;
+    clearRepeatingTimer(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
+  function clearRetryTimer() {
+    if (retryTimer === null) return;
+    clearTimer(retryTimer);
+    retryTimer = null;
+  }
+
+  function refreshSafely() {
+    try {
+      const task = refresh();
+      if (task && typeof task.catch === "function") task.catch(() => {});
+    } catch {}
+  }
+
+  function startFallbackPolling({ immediate = false } = {}) {
+    if (pollTimer !== null) return;
+    if (immediate && isVisible()) refreshSafely();
+    pollTimer = setRepeatingTimer(() => {
+      if (!stopped && isVisible()) refreshSafely();
+    }, pollIntervalMs);
+  }
+
+  function stopFallbackPolling() {
+    if (pollTimer === null) return;
+    clearRepeatingTimer(pollTimer);
+    pollTimer = null;
+  }
+
+  function scheduleReconnect() {
+    if (stopped || retryTimer !== null) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryMaxMs, Math.round(retryDelay * 1.8));
+    const randomValue = Number(random());
+    const jitter = 0.85 + (Number.isFinite(randomValue) ? Math.min(1, Math.max(0, randomValue)) : 0.5) * 0.3;
+    retryTimer = setTimer(() => {
+      retryTimer = null;
+      connect();
+    }, Math.round(delay * jitter));
+  }
+
+  function disconnect(current) {
+    if (socket !== current) return;
+    socket = null;
+    clearConnectTimer();
+    clearHeartbeatTimer();
+    try { current.close(); } catch {}
+    if (stopped) return;
+    setStatus("Syncing", "polling");
+    startFallbackPolling({ immediate: true });
+    scheduleReconnect();
+  }
+
+  function startHeartbeat(current) {
+    clearHeartbeatTimer();
+    heartbeatTimer = setRepeatingTimer(() => {
+      if (socket !== current || stopped) {
+        clearHeartbeatTimer();
+        return;
+      }
+      try { current.send("ping"); } catch { disconnect(current); }
+    }, heartbeatIntervalMs);
+  }
+
+  function connect() {
+    if (stopped) return;
+    if (socket && (socket.readyState === SOCKET_OPEN || socket.readyState === SOCKET_CONNECTING)) return;
+
+    clearRetryTimer();
+    setStatus("Connecting", "connecting");
+
+    let current;
+    try {
+      current = socketFactory();
+    } catch {
+      setStatus("Syncing", "polling");
+      startFallbackPolling({ immediate: true });
+      scheduleReconnect();
+      return;
+    }
+
+    socket = current;
+    connectTimer = setTimer(() => disconnect(current), connectionTimeoutMs);
+
+    current.onopen = () => {
+      if (socket !== current || stopped) {
+        try { current.close(); } catch {}
+        return;
+      }
+      clearConnectTimer();
+      retryDelay = retryInitialMs;
+      setStatus("Live", "live");
+      stopFallbackPolling();
+      startHeartbeat(current);
+    };
+    current.onmessage = (event) => {
+      if (socket === current && !stopped) onMessage(event);
+    };
+    current.onclose = () => disconnect(current);
+    current.onerror = () => disconnect(current);
+  }
+
+  function start() {
+    if (!stopped) return;
+    stopped = false;
+    startFallbackPolling({ immediate: true });
+    connect();
+  }
+
+  function resume() {
+    if (stopped) return;
+    if (isVisible()) refreshSafely();
+    connect();
+  }
+
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    clearConnectTimer();
+    clearHeartbeatTimer();
+    clearRetryTimer();
+    stopFallbackPolling();
+    const current = socket;
+    socket = null;
+    try { current && current.close(); } catch {}
+  }
+
+  return { start, resume, stop };
+}
+
 function clientApp() {
   "use strict";
 
@@ -51,11 +226,6 @@ function clientApp() {
   let analysisRequest = 0;
   let toastTimer = null;
   let refreshTimer = null;
-  let socket = null;
-  let socketRetry = null;
-  let socketRetryDelay = 500;
-  let pingTimer = null;
-  let fallbackTimer = null;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -613,54 +783,22 @@ function clientApp() {
     }, 450);
   }
 
-  function stopFallbackPoll() {
-    clearInterval(fallbackTimer);
-    fallbackTimer = null;
-  }
-
-  function startFallbackPoll() {
-    if (fallbackTimer) return;
-    fallbackTimer = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        loadShots({ silent: true });
-        loadAnalysis({ silent: true });
-      }
-    }, 15_000);
-  }
-
-  function connectSocket() {
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-    clearTimeout(socketRetry);
-    setLiveStatus("Connecting", "connecting");
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const current = new WebSocket(protocol + "//" + location.host + "/api/ws");
-    socket = current;
-
-    current.onopen = () => {
-      socketRetryDelay = 500;
-      setLiveStatus("Live", "live");
-      stopFallbackPoll();
-      clearInterval(pingTimer);
-      pingTimer = setInterval(() => {
-        try { current.send("ping"); } catch {}
-      }, 20_000);
-    };
-    current.onmessage = (event) => {
+  const realtime = createRealtimeController({
+    socketFactory: () => {
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      return new WebSocket(protocol + "//" + location.host + "/api/ws");
+    },
+    setStatus: setLiveStatus,
+    refresh: () => {
+      loadShots({ silent: true });
+      loadAnalysis({ silent: true });
+    },
+    onMessage: (event) => {
       if (event.data === "pong") return;
       try { scheduleRealtimeRefresh(JSON.parse(event.data)); } catch {}
-    };
-    current.onclose = () => {
-      if (socket === current) socket = null;
-      clearInterval(pingTimer);
-      setLiveStatus("Reconnecting", "connecting");
-      startFallbackPoll();
-      socketRetry = setTimeout(connectSocket, socketRetryDelay);
-      socketRetryDelay = Math.min(socketRetryDelay * 1.8, 8_000);
-    };
-    current.onerror = () => {
-      try { current.close(); } catch {}
-    };
-  }
+    },
+    isVisible: () => document.visibilityState === "visible",
+  });
 
   if (!hydrateInitialState()) {
     loadShots({ silent: true });
@@ -696,13 +834,12 @@ function clientApp() {
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
-    loadShots({ silent: true });
-    loadAnalysis({ silent: true });
-    connectSocket();
+    realtime.resume();
   });
-  window.addEventListener("online", connectSocket);
-  connectSocket();
+  window.addEventListener("online", () => realtime.resume());
+  window.addEventListener("pagehide", () => realtime.stop(), { once: true });
+  realtime.start();
 
 }
 
-export const CLIENT_SCRIPT = `(${clientApp.toString()})();`;
+export const CLIENT_SCRIPT = `const createRealtimeController = ${createRealtimeController.toString()};\n(${clientApp.toString()})();`;

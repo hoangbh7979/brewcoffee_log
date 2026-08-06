@@ -146,6 +146,10 @@ button { color: inherit; }
   box-shadow: 0 0 0 5px rgba(146, 183, 156, 0.1);
   animation: pulse 2s infinite;
 }
+.live-pill[data-state="polling"] .live-dot {
+  background: #899eb7;
+  box-shadow: 0 0 0 5px rgba(137, 158, 183, 0.12);
+}
 
 main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 .hero {
