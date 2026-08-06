@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "planet1";
+const ASSET_VERSION = "header-logo1";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -36,20 +36,12 @@ export function renderHomePage(model = {}) {
 <body>
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
-  <div class="brand-intro" aria-hidden="true">
-    <div class="brand-planet brand-planet-intro">
-      <span class="planet-ring planet-ring-one"></span>
-      <span class="planet-ring planet-ring-two"></span>
-      <span class="planet-satellite planet-satellite-one"></span>
-      <span class="planet-satellite planet-satellite-two"></span>
-      <div class="planet-logo-wrap"><img src="/ut_tam_logo_dark.png" width="320" height="160" alt=""></div>
-    </div>
-  </div>
-
   <header class="site-header" id="top">
     <div class="header-layout">
       <nav class="nav-shell" aria-label="Primary navigation">
-        <a class="header-kicker" href="#overview" aria-label="UT-TAM Brew Coffee home"><i></i><span>Shot log</span></a>
+        <a class="header-brand" href="#overview" aria-label="UT-TAM Brew Coffee home">
+          <img src="/ut_tam_logo_dark.png" width="152" height="100" alt="UT-TAM Brew Coffee">
+        </a>
         <div class="nav-links">
           <a href="#overview" data-nav="overview">Overview</a>
           <a href="#shot-log" data-nav="shot-log">Shot Log</a>
@@ -76,12 +68,12 @@ export function renderHomePage(model = {}) {
       </div>
 
       <div class="hero-visual reveal" aria-label="Live brew summary">
-        <div class="brand-planet" role="img" aria-label="UT-TAM Brew Coffee brand mark">
+        <div class="brand-planet" role="img" aria-label="Espresso extraction target visual">
           <span class="planet-ring planet-ring-one"></span>
           <span class="planet-ring planet-ring-two"></span>
           <span class="planet-satellite planet-satellite-one"></span>
           <span class="planet-satellite planet-satellite-two"></span>
-          <div class="planet-logo-wrap"><img src="/ut_tam_logo_dark.png" width="320" height="160" alt="UT-TAM Brew Coffee"></div>
+          <span class="planet-core" aria-hidden="true"><b>25</b><small>sec<br>target</small></span>
           <span class="planet-readout">25<small>s target</small></span>
         </div>
         <div class="floating-card floating-top">

@@ -47,10 +47,12 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.ok(tableBody);
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
   assert.match(html, /value="2026-08-05"/);
-  assert.doesNotMatch(html, /class="brand brand-ut-tam"/);
-  assert.match(html, /class="brand-intro"/);
-  assert.match(html, /class="brand-planet" role="img" aria-label="UT-TAM Brew Coffee brand mark"/);
-  assert.match(html, /class="header-kicker"/);
+  assert.doesNotMatch(html, /class="brand-intro"/);
+  assert.doesNotMatch(html, /class="header-kicker"/);
+  assert.match(html, /class="header-brand" href="#overview" aria-label="UT-TAM Brew Coffee home"/);
+  assert.match(html, /src="\/ut_tam_logo_dark\.png" width="152" height="100" alt="UT-TAM Brew Coffee"/);
+  assert.match(html, /class="brand-planet" role="img" aria-label="Espresso extraction target visual"/);
+  assert.match(html, /class="planet-core" aria-hidden="true"><b>25<\/b><small>sec<br>target<\/small><\/span>/);
   assert.match(html, /id="livePill" data-state="booting"/);
   assert.match(html, /id="liveStatus">Starting<\/span>/);
   assert.match(html, /Realtime bootstrap/);
