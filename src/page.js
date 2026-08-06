@@ -1,7 +1,7 @@
 import { CLIENT_SCRIPT } from "./page-client.js";
 
 const TARGET_MS = 25_000;
-const ASSET_VERSION = "data-planet1";
+const ASSET_VERSION = "data-planet2";
 
 export function renderHomePage(model = {}) {
   const shots = model.shots || null;
@@ -146,15 +146,6 @@ export function renderHomePage(model = {}) {
       <p class="analysis-period" id="analysisPeriod">${renderAnalysisPeriod(analysis)}</p>
 
       <div class="analysis-grid">
-        <div class="panel distribution-panel reveal">
-          <div class="panel-title">
-            <div><span>Shot distribution</span><strong id="distributionTotal">${analysisTotal} extractions</strong></div>
-            <span class="panel-symbol">↗</span>
-          </div>
-          <div class="distribution-list" id="distributionList">${renderDistribution(analysis, selectedDate)}</div>
-          <p class="interaction-hint">Select a range to filter the currently selected day.</p>
-        </div>
-
         <div class="panel mix-panel reveal">
           <div class="panel-title">
             <div><span>Bucket mix</span><strong>Share by extraction time</strong></div>
@@ -361,28 +352,6 @@ function renderFilterButtons(selected, selectedDate) {
   return filters.map(([key, label]) => {
     const query = `/?date=${encodeURIComponent(selectedDate)}&bucket=${encodeURIComponent(key)}#shot-log`;
     return `<a class="chip${key === selected ? " active" : ""}" data-filter="${key}" href="${escapeHtml(query)}">${label}</a>`;
-  }).join("");
-}
-
-function renderDistribution(analysis, selectedDate) {
-  const buckets = analysis && analysis.buckets ? analysis.buckets : {};
-  const total = analysis ? Number(analysis.total) || 0 : 0;
-  const definitions = [
-    ["under20", "&lt;20s", "#899eb7"],
-    ["20to25", "20–25s", "#b49f82"],
-    ["25to28", "25–28s", "#92b79c"],
-    ["28to30", "28–30s", "#c99b64"],
-    ["over30", "&gt;30s", "#d08c7d"],
-  ];
-  return definitions.map(([key, label, color]) => {
-    const count = Number(buckets[key]) || 0;
-    const width = total > 0 ? Math.max(count > 0 ? 3 : 0, count * 100 / total) : 0;
-    const query = `/?date=${encodeURIComponent(selectedDate || "")}&bucket=${encodeURIComponent(key)}#shot-log`;
-    return `<a class="distribution-row" data-bucket="${key}" href="${escapeHtml(query)}">
-      <span class="distribution-label">${label}</span>
-      <span class="bar-track"><i class="bar-fill" style="width:${width.toFixed(1)}%;background:${color}"></i></span>
-      <strong class="distribution-value">${count}</strong>
-    </a>`;
   }).join("");
 }
 

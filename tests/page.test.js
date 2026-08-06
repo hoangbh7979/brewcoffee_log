@@ -103,6 +103,8 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.match(html, /name="analysis_end"/);
   assert.match(html, /id="analysisAll"[^>]*href="\/\?date=2026-08-05&amp;page=2&amp;analysis_all=1&amp;view=daily#analysis"/);
   assert.match(html, /id="bucketMix"/);
+  assert.doesNotMatch(html, /distributionList|distributionTotal|<span>Shot distribution<\/span>/);
+  assert.doesNotMatch(CLIENT_SCRIPT, /distributionList|distributionTotal|distribution-row/);
   assert.match(html, /class="donut-chart"/);
   assert.match(html, /class="donut-orbit donut-orbit-one"/);
   assert.match(html, /class="donut-orbit donut-orbit-two"/);

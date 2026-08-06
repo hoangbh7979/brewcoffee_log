@@ -508,14 +508,12 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .page-ellipsis { width: 20px; color: var(--dim); letter-spacing: .08em; }
 .analysis-grid {
   display: grid;
-  grid-template-columns: minmax(280px, .82fr) minmax(360px, 1.18fr);
-  grid-template-areas: "distribution mix" "trend trend";
+  grid-template-columns: 1fr;
+  grid-template-areas: "mix" "trend";
   gap: 18px;
 }
-.distribution-panel,
 .mix-panel,
 .trend-panel { padding: 28px; min-height: 470px; }
-.distribution-panel { grid-area: distribution; }
 .mix-panel { grid-area: mix; position: relative; isolation: isolate; background: radial-gradient(circle at 29% 56%, rgba(151,105,63,.13), transparent 36%), linear-gradient(145deg, rgba(24,22,19,.92), rgba(14,13,12,.96)); }
 .mix-panel::before { content: ""; position: absolute; z-index: 0; width: 360px; height: 360px; left: -115px; bottom: -170px; border-radius: 50%; background: rgba(201,155,100,.1); filter: blur(70px); pointer-events: none; }
 .mix-panel .panel-title,
@@ -526,25 +524,7 @@ tbody tr:hover { background: rgba(255,255,255,.035); }
 .panel-title span { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .panel-title strong { font: 400 22px/1.2 Georgia, serif; }
 .panel-symbol { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--text) !important; }
-.distribution-list { display: grid; gap: 13px; }
-.distribution-row {
-  padding: 10px 12px;
-  display: grid;
-  grid-template-columns: 70px 1fr 42px;
-  align-items: center;
-  gap: 13px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 160ms ease, border-color 160ms ease;
-}
-.distribution-row:hover { background: rgba(255,255,255,.035); border-color: var(--line); }
-.distribution-label { color: #cec8bf; font-size: 12px; }
-.bar-track { height: 6px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.06); }
-.bar-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width 700ms cubic-bezier(.2,.8,.2,1); }
-.distribution-value { text-align: right; font: 400 18px/1 Georgia, serif; }
-.interaction-hint { margin: 27px 0 0; color: var(--dim); font-size: 11px; }
-.bucket-mix { display: grid; grid-template-columns: minmax(270px, .95fr) minmax(225px, 1fr); align-items: center; gap: 34px; }
+.bucket-mix { width: min(100%, 980px); margin: 0 auto; display: grid; grid-template-columns: minmax(300px, .95fr) minmax(300px, 1fr); align-items: center; gap: 54px; }
 .donut-shell { min-height: 310px; display: grid; place-items: center; position: relative; isolation: isolate; padding: 10px; overflow: visible; }
 .donut-shell::before { content: ""; position: absolute; z-index: -2; width: 278px; height: 278px; border-radius: 50%; background: radial-gradient(circle at 46% 42%, rgba(222,177,122,.24), rgba(127,80,43,.09) 38%, transparent 70%); filter: blur(15px); opacity: .95; animation: donut-glow 7s ease-in-out infinite; }
 .donut-shell::after { content: ""; position: absolute; z-index: -1; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle at 38% 32%, rgba(255,255,255,.055), transparent 40%); box-shadow: inset 0 0 50px rgba(0,0,0,.24), 0 0 45px rgba(201,155,100,.06); pointer-events: none; }
@@ -710,8 +690,8 @@ tbody tr:focus-visible {
   .hero-visual { min-height: 450px; }
   .floating-top { right: 8%; }
   .floating-bottom { left: 8%; }
-  .analysis-grid { grid-template-columns: 1fr; grid-template-areas: "distribution" "mix" "trend"; }
-  .distribution-panel, .mix-panel, .trend-panel { min-height: 430px; }
+  .analysis-grid { grid-template-columns: 1fr; grid-template-areas: "mix" "trend"; }
+  .mix-panel, .trend-panel { min-height: 430px; }
 }
 
 @media (max-width: 720px) {
@@ -775,8 +755,7 @@ tbody tr:focus-visible {
   .hero-metrics strong { font-size: 21px; }
   .section-heading h2 { font-size: 44px; }
   .panel { border-radius: 22px; }
-  .distribution-panel, .mix-panel, .trend-panel { padding: 21px 16px; }
-  .distribution-row { grid-template-columns: 62px 1fr 34px; padding-left: 5px; padding-right: 5px; }
+  .mix-panel, .trend-panel { padding: 21px 16px; }
   .dialog-time { font-size: 62px; }
   .dialog-grid { grid-template-columns: 1fr; }
 }

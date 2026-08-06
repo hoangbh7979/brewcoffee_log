@@ -226,8 +226,6 @@ function clientApp() {
     resultCount: document.getElementById("resultCount"),
     pagination: document.getElementById("pagination"),
     filterChips: document.getElementById("filterChips"),
-    distribution: document.getElementById("distributionList"),
-    distributionTotal: document.getElementById("distributionTotal"),
     bucketMix: document.getElementById("bucketMix"),
     chart: document.getElementById("trendChart"),
     analysisStart: document.getElementById("analysisStart"),
@@ -558,18 +556,6 @@ function clientApp() {
 
   function renderAnalysis() {
     const analysis = state.analysis;
-    const total = Number(analysis.total) || 0;
-    elements.distributionTotal.textContent = total + (total === 1 ? " extraction" : " extractions");
-    elements.distribution.innerHTML = BUCKETS.map((bucket) => {
-      const count = Number(analysis.buckets && analysis.buckets[bucket.key]) || 0;
-      const width = total > 0 ? Math.max(count > 0 ? 3 : 0, count * 100 / total) : 0;
-      const href = escapeHtml('/?date=' + encodeURIComponent(state.date) + '&bucket=' + encodeURIComponent(bucket.key) + '#shot-log');
-      return '<a class="distribution-row" data-bucket="' + bucket.key + '" href="' + href + '">' +
-        '<span class="distribution-label">' + bucket.label + "</span>" +
-        '<span class="bar-track"><i class="bar-fill" style="width:' + width.toFixed(1) + "%;background:" + bucket.color + '"></i></span>' +
-        '<strong class="distribution-value">' + count + "</strong>" +
-        "</a>";
-    }).join("");
     elements.analysisPeriod.textContent = analysisPeriodText(analysis);
     elements.bucketMix.innerHTML = bucketMixMarkup(analysis);
     elements.chart.innerHTML = trendChartMarkup(analysis, state.chartMode);
