@@ -150,6 +150,10 @@ button { color: inherit; }
   background: #899eb7;
   box-shadow: 0 0 0 5px rgba(137, 158, 183, 0.12);
 }
+.live-pill[data-state="error"] .live-dot {
+  background: #d08c7d;
+  box-shadow: 0 0 0 5px rgba(208, 140, 125, 0.12);
+}
 
 main { width: min(var(--max), calc(100vw - 48px)); margin: 0 auto; }
 .hero {

@@ -4,6 +4,7 @@ export function createRealtimeController(options = {}) {
     setStatus = () => {},
     refresh = () => {},
     onMessage = () => {},
+    onEvent = () => {},
     isVisible = () => true,
     timers = globalThis,
     random = Math.random,
@@ -32,6 +33,10 @@ export function createRealtimeController(options = {}) {
   let pollTimer = null;
   let retryDelay = retryInitialMs;
   let stopped = true;
+
+  function emit(type) {
+    try { onEvent({ type, at: Date.now() }); } catch {}
+  }
 
   function clearConnectTimer() {
     if (connectTimer === null) return;
@@ -112,12 +117,13 @@ export function createRealtimeController(options = {}) {
     if (socket && (socket.readyState === SOCKET_OPEN || socket.readyState === SOCKET_CONNECTING)) return;
 
     clearRetryTimer();
-    setStatus("Connecting", "connecting");
+    emit("connecting");
 
     let current;
     try {
       current = socketFactory();
     } catch {
+      emit("socket_factory_error");
       setStatus("Syncing", "polling");
       startFallbackPolling({ immediate: true });
       scheduleReconnect();
@@ -125,7 +131,10 @@ export function createRealtimeController(options = {}) {
     }
 
     socket = current;
-    connectTimer = setTimer(() => disconnect(current), connectionTimeoutMs);
+    connectTimer = setTimer(() => {
+      if (socket === current) emit("timeout");
+      disconnect(current);
+    }, connectionTimeoutMs);
 
     current.onopen = () => {
       if (socket !== current || stopped) {
@@ -134,6 +143,7 @@ export function createRealtimeController(options = {}) {
       }
       clearConnectTimer();
       retryDelay = retryInitialMs;
+      emit("open");
       setStatus("Live", "live");
       stopFallbackPolling();
       startHeartbeat(current);
@@ -141,13 +151,21 @@ export function createRealtimeController(options = {}) {
     current.onmessage = (event) => {
       if (socket === current && !stopped) onMessage(event);
     };
-    current.onclose = () => disconnect(current);
-    current.onerror = () => disconnect(current);
+    current.onclose = () => {
+      if (socket === current) emit("closed");
+      disconnect(current);
+    };
+    current.onerror = () => {
+      if (socket === current) emit("error");
+      disconnect(current);
+    };
   }
 
   function start() {
     if (!stopped) return;
     stopped = false;
+    setStatus("Syncing", "polling");
+    emit("start");
     startFallbackPolling({ immediate: true });
     connect();
   }
@@ -161,6 +179,7 @@ export function createRealtimeController(options = {}) {
   function stop() {
     if (stopped) return;
     stopped = true;
+    emit("stop");
     clearConnectTimer();
     clearHeartbeatTimer();
     clearRetryTimer();
@@ -796,6 +815,10 @@ function clientApp() {
     onMessage: (event) => {
       if (event.data === "pong") return;
       try { scheduleRealtimeRefresh(JSON.parse(event.data)); } catch {}
+    },
+    onEvent: ({ type }) => {
+      elements.livePill.dataset.event = type;
+      elements.livePill.title = "Realtime: " + type;
     },
     isVisible: () => document.visibilityState === "visible",
   });

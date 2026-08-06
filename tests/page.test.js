@@ -47,6 +47,9 @@ test("renderHomePage includes a paginated daily log, range controls, and an SSR 
   assert.equal((tableBody[1].match(/class="brew-number"/g) || []).length, 12);
   assert.match(html, /value="2026-08-05"/);
   assert.match(html, /class="brand brand-ut-tam"[^>]*>\s*<img src="\/ut_tam_logo_dark\.png"[^>]*alt="UT-TAM Brew Coffee">/);
+  assert.match(html, /id="livePill" data-state="booting"/);
+  assert.match(html, /id="liveStatus">Starting<\/span>/);
+  assert.match(html, /Realtime bootstrap/);
   assert.match(html, /rel="icon" type="image\/png" sizes="1024x1024" href="\/favicon_logo2_transparent\.png\?v=7"/);
   assert.match(html, /rel="icon" type="image\/x-icon" href="\/favicon\.ico\?v=7" sizes="any"/);
   assert.match(html, /rel="shortcut icon" type="image\/png" href="\/favicon_logo2_transparent\.png\?v=7"/);

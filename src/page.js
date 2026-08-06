@@ -48,9 +48,9 @@ export function renderHomePage(model = {}) {
           <a href="#shot-log" data-nav="shot-log">Shot Log</a>
           <a href="#analysis" data-nav="analysis">Analysis</a>
         </div>
-        <div class="live-pill" id="livePill" data-state="connecting" aria-live="polite">
+        <div class="live-pill" id="livePill" data-state="booting" aria-live="polite">
           <span class="live-dot"></span>
-          <span id="liveStatus">Connecting</span>
+          <span id="liveStatus">Starting</span>
         </div>
       </nav>
     </div>
@@ -200,6 +200,7 @@ export function renderHomePage(model = {}) {
 
   <template id="initialState">${escapeHtml(JSON.stringify({ shots, analysis }))}</template>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script nonce="${scriptNonce}">(()=>{const fail=(kind)=>{const pill=document.getElementById("livePill"),label=document.getElementById("liveStatus");if(!pill||!label)return;pill.dataset.state="error";pill.dataset.event=kind;label.textContent="Client error";pill.title="Realtime bootstrap: "+kind;};window.addEventListener("error",()=>fail("error"));window.addEventListener("unhandledrejection",()=>fail("rejection"));})();</script>
   <script nonce="${scriptNonce}">${CLIENT_SCRIPT}</script>
 </body>
 </html>`;

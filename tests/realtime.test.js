@@ -83,6 +83,7 @@ function createHarness() {
   const timers = new FakeTimers();
   const sockets = [];
   const statuses = [];
+  const events = [];
   const messages = [];
   let refreshes = 0;
   const controller = createRealtimeController({
@@ -97,6 +98,7 @@ function createHarness() {
     heartbeatIntervalMs: 2_000,
     pollIntervalMs: 3_000,
     setStatus: (text, state) => statuses.push({ text, state }),
+    onEvent: ({ type }) => events.push(type),
     refresh: () => { refreshes += 1; },
     onMessage: (event) => messages.push(event.data),
   });
@@ -105,6 +107,7 @@ function createHarness() {
     messages,
     sockets,
     statuses,
+    events,
     timers,
     refreshes: () => refreshes,
   };
@@ -116,7 +119,8 @@ test("realtime controller falls back to polling when a socket stays connecting",
 
   assert.equal(harness.sockets.length, 1);
   assert.equal(harness.refreshes(), 1);
-  assert.deepEqual(harness.statuses.at(-1), { text: "Connecting", state: "connecting" });
+  assert.deepEqual(harness.statuses.at(-1), { text: "Syncing", state: "polling" });
+  assert.deepEqual(harness.events.slice(0, 2), ["start", "connecting"]);
 
   harness.timers.runNextTimeout();
 
@@ -128,7 +132,8 @@ test("realtime controller falls back to polling when a socket stays connecting",
 
   harness.timers.runNextTimeout();
   assert.equal(harness.sockets.length, 2);
-  assert.deepEqual(harness.statuses.at(-1), { text: "Connecting", state: "connecting" });
+  assert.deepEqual(harness.statuses.at(-1), { text: "Syncing", state: "polling" });
+  assert.ok(harness.events.includes("timeout"));
 });
 
 test("realtime controller stops polling once live and resumes it after disconnect", () => {
