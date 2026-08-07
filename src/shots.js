@@ -100,7 +100,7 @@ export async function getShotsForDate(env, options = {}) {
     : bounds.maxDate;
   const selectedRange = dateRangeForBangkokDay(selectedDate);
 
-  const daySummary = await getDailyStatsForDate(env, selectedDate, selectedRange);
+  const daySummary = await getDailyStatsForDate(env, selectedDate);
   const total = bucketCount(daySummary, bucket);
   const pageCount = Math.max(1, Math.ceil(total / SHOT_LOG_PAGE_SIZE));
   const page = Math.min(requestedPage, pageCount);
@@ -163,40 +163,20 @@ function bucketCount(summary, bucket) {
   return numericCount(summary && summary[key || "total"]);
 }
 
-async function getDailyStatsForDate(env, selectedDate, selectedRange) {
-  try {
-    const result = await env.DB.prepare(
-      `SELECT total,
-              sum_ms,
-              under20,
-              bucket_20_25,
-              bucket_25_28,
-              bucket_28_30,
-              over30,
-              consistent
-       FROM shot_daily_stats
-       WHERE shot_date = ?`
-    ).bind(selectedDate).first();
-    return result || emptyDailyStats();
-  } catch (error) {
-    if (!isMissingDailyStatsError(error)) throw error;
-    return getRawDailyStats(env, selectedRange);
-  }
-}
-
-async function getRawDailyStats(env, range) {
-  return await env.DB.prepare(
-    `SELECT COUNT(*) AS total,
-            COALESCE(SUM(shot_ms), 0) AS sum_ms,
-            COUNT(CASE WHEN shot_ms < 20000 THEN 1 END) AS under20,
-            COUNT(CASE WHEN shot_ms >= 20000 AND shot_ms < 25000 THEN 1 END) AS bucket_20_25,
-            COUNT(CASE WHEN shot_ms >= 25000 AND shot_ms < 28000 THEN 1 END) AS bucket_25_28,
-            COUNT(CASE WHEN shot_ms >= 28000 AND shot_ms <= 30000 THEN 1 END) AS bucket_28_30,
-            COUNT(CASE WHEN shot_ms > 30000 THEN 1 END) AS over30,
-            COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
-     FROM shots
-     WHERE created_at >= ? AND created_at < ?`
-  ).bind(range.start, range.end).first() || emptyDailyStats();
+async function getDailyStatsForDate(env, selectedDate) {
+  const result = await env.DB.prepare(
+    `SELECT total,
+            sum_ms,
+            under20,
+            bucket_20_25,
+            bucket_25_28,
+            bucket_28_30,
+            over30,
+            consistent
+     FROM shot_daily_stats
+     WHERE shot_date = ?`
+  ).bind(selectedDate).first();
+  return result || emptyDailyStats();
 }
 
 function emptyDailyStats() {
@@ -219,7 +199,7 @@ export async function getShotAnalysis(env, options = {}) {
   const bounds = { ...dataBounds, maxDate: bangkokDate(now) };
   const range = resolveAnalysisRange(options, bounds);
   const recent = historyWindow(now);
-  const aggregatesPromise = getAnalysisAggregates(env, range, recent);
+  const aggregatesPromise = getDailyAnalysisAggregates(env, range, recent);
   const pointsPromise = options.includePoints
     ? env.DB.prepare(
       `SELECT id, created_at, shot_ms
@@ -281,15 +261,6 @@ export async function getShotAnalysis(env, options = {}) {
   return result;
 }
 
-async function getAnalysisAggregates(env, range, recent) {
-  try {
-    return await getDailyAnalysisAggregates(env, range, recent);
-  } catch (error) {
-    if (!isMissingDailyStatsError(error)) throw error;
-    return getRawAnalysisAggregates(env, range, recent);
-  }
-}
-
 async function getDailyAnalysisAggregates(env, range, recent) {
   const [dailyResult, recentSummary] = await Promise.all([
     env.DB.prepare(
@@ -317,44 +288,6 @@ async function getDailyAnalysisAggregates(env, range, recent) {
   return {
     summary: sumDailyRows(daily),
     daily,
-    recent: recentSummary || { total: 0, consistent: 0 },
-  };
-}
-
-async function getRawAnalysisAggregates(env, range, recent) {
-  const [summary, dailyResult, recentSummary] = await Promise.all([
-    env.DB.prepare(
-      `SELECT COUNT(*) AS total,
-              COALESCE(SUM(shot_ms), 0) AS sum_ms,
-              COUNT(CASE WHEN shot_ms < 20000 THEN 1 END) AS under20,
-              COUNT(CASE WHEN shot_ms >= 20000 AND shot_ms < 25000 THEN 1 END) AS bucket_20_25,
-              COUNT(CASE WHEN shot_ms >= 25000 AND shot_ms < 28000 THEN 1 END) AS bucket_25_28,
-              COUNT(CASE WHEN shot_ms >= 28000 AND shot_ms <= 30000 THEN 1 END) AS bucket_28_30,
-              COUNT(CASE WHEN shot_ms > 30000 THEN 1 END) AS over30,
-              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
-       FROM shots
-       WHERE created_at >= ? AND created_at < ?`
-    ).bind(range.start, range.end).first(),
-    env.DB.prepare(
-      `SELECT date(created_at / 1000, 'unixepoch', '+7 hours') AS date,
-              COUNT(*) AS count,
-              COALESCE(SUM(shot_ms), 0) AS sum_ms,
-              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
-       FROM shots
-       WHERE created_at >= ? AND created_at < ?
-       GROUP BY date
-       ORDER BY date ASC`
-    ).bind(range.start, range.end).all(),
-    env.DB.prepare(
-      `SELECT COUNT(*) AS total,
-              COUNT(CASE WHEN shot_ms >= 24000 AND shot_ms <= 27000 THEN 1 END) AS consistent
-       FROM shots
-       WHERE created_at >= ? AND created_at < ?`
-    ).bind(recent.start, recent.end).first(),
-  ]);
-  return {
-    summary: summary || emptyDailyStats(),
-    daily: dailyResult.results || [],
     recent: recentSummary || { total: 0, consistent: 0 },
   };
 }
@@ -405,11 +338,6 @@ function numericCount(value) {
 function numericSum(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : 0;
-}
-
-function isMissingDailyStatsError(error) {
-  const message = String(error && error.message ? error.message : error || "").toLowerCase();
-  return message.includes("shot_daily_stats") && message.includes("no such table");
 }
 
 function numericTimestamp(value) {

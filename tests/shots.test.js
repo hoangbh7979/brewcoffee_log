@@ -113,24 +113,23 @@ test("getShotsForDate limits results to 5 rows and returns pagination metadata",
   assert.deepEqual(summaryQuery.bindings, ["2026-07-01"]);
 });
 
-test("daily shot log falls back safely before the aggregate migration exists", async () => {
+test("daily shot log surfaces a missing aggregate migration", async () => {
+  const queries = [];
   const env = mockEnv((sql) => {
-    if (sql.includes("shot_daily_stats")) throw new Error("D1_ERROR: no such table: shot_daily_stats");
-    if (sql.includes("COALESCE(SUM(shot_ms)")) {
-      return { total: 2, sum_ms: 49_000, under20: 0, bucket_20_25: 1, bucket_25_28: 1, bucket_28_30: 0, over30: 0, consistent: 2 };
-    }
-    if (sql.includes("SELECT id, created_at")) return { results: [] };
-    throw new Error(`Unexpected query: ${sql}`);
+    queries.push(sql);
+    throw new Error("D1_ERROR: no such table: shot_daily_stats");
   });
 
-  const result = await getShotsForDate(env, {
-    date: "2026-08-05",
-    now: NOW,
-    bounds: { minDate: "2026-01-10", maxDate: "2026-08-05" },
-  });
-
-  assert.equal(result.total, 2);
-  assert.deepEqual(result.day_summary, { total: 2, consistent: 2, consistency_percent: 100 });
+  await assert.rejects(
+    getShotsForDate(env, {
+      date: "2026-08-05",
+      now: NOW,
+      bounds: { minDate: "2026-01-10", maxDate: "2026-08-05" },
+    }),
+    /no such table: shot_daily_stats/
+  );
+  assert.equal(queries.length, 1);
+  assert.match(queries[0], /FROM shot_daily_stats/);
 });
 
 test("getShotAnalysis aggregates all D1 history while keeping 30-day consistency", async () => {
@@ -176,7 +175,7 @@ test("shot bounds use two index-friendly ordered lookups", async () => {
   assert.ok(queries.every((sql) => !sql.includes("MIN(") && !sql.includes("MAX(")));
 });
 
-test("aggregate and raw fallback analysis return the same exact result", async () => {
+test("analysis calculates exact averages and buckets from daily aggregates", async () => {
   const bounds = { minDate: "2026-08-04", maxDate: "2026-08-05" };
   const dailyRows = [
     { date: "2026-08-04", count: 2, sum_ms: 49_000, under20: 0, bucket_20_25: 1, bucket_25_28: 1, bucket_28_30: 0, over30: 0, consistent: 1 },
@@ -187,25 +186,30 @@ test("aggregate and raw fallback analysis return the same exact result", async (
     if (sql.includes("SUM(consistent)")) return { total: 5, consistent: 2 };
     throw new Error(`Unexpected aggregate query: ${sql}`);
   });
-  const fallbackEnv = mockEnv((sql) => {
-    if (sql.includes("shot_daily_stats")) throw new Error("D1_ERROR: no such table: shot_daily_stats");
-    if (sql.includes("GROUP BY date")) {
-      return { results: dailyRows.map(({ date, count, sum_ms, consistent }) => ({ date, count, sum_ms, consistent })) };
-    }
-    if (sql.includes("SUM(shot_ms)")) {
-      return { total: 5, sum_ms: 129_000, under20: 1, bucket_20_25: 1, bucket_25_28: 2, bucket_28_30: 0, over30: 1, consistent: 2 };
-    }
-    if (sql.includes("COUNT(*) AS total")) return { total: 5, consistent: 2 };
-    throw new Error(`Unexpected fallback query: ${sql}`);
-  });
   const options = { now: NOW, allHistory: true, bounds };
 
   const aggregate = await getShotAnalysis(aggregateEnv, options);
-  const fallback = await getShotAnalysis(fallbackEnv, options);
 
-  assert.deepEqual(fallback, aggregate);
   assert.equal(aggregate.average_ms, 25_800);
   assert.deepEqual(aggregate.buckets, { under20: 1, "20to25": 1, "25to28": 2, "28to30": 0, over30: 1 });
+});
+
+test("analysis surfaces a missing aggregate migration", async () => {
+  const queries = [];
+  const env = mockEnv((sql) => {
+    queries.push(sql);
+    throw new Error("D1_ERROR: no such table: shot_daily_stats");
+  });
+
+  await assert.rejects(
+    getShotAnalysis(env, {
+      now: NOW,
+      bounds: { minDate: "2026-08-04", maxDate: "2026-08-05" },
+    }),
+    /no such table: shot_daily_stats/
+  );
+  assert.ok(queries.length > 0);
+  assert.ok(queries.every((sql) => sql.includes("FROM shot_daily_stats")));
 });
 
 function mockEnv(handler) {
