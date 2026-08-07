@@ -6,6 +6,7 @@ import {
   consistencyPercent,
   dateRangeForBangkokDay,
   getShotAnalysis,
+  getShotBounds,
   getShotsForDate,
   historyWindow,
   isDateWithinHistory,
@@ -53,15 +54,10 @@ test("analysis range defaults to the current day and can expand to all D1", () =
 test("analysis opens the current Bangkok day even when its latest D1 record is older", async () => {
   const now = Date.parse("2026-10-10T03:00:00Z");
   const env = mockEnv((sql) => {
-    if (sql.includes("MIN(created_at)")) {
-      return {
-        min_created_at: Date.parse("2026-01-09T17:00:00Z"),
-        max_created_at: Date.parse("2026-08-05T16:59:00Z"),
-      };
-    }
-    if (sql.includes("AVG(shot_ms)") && sql.includes("AS under20")) return {};
-    if (sql.includes("GROUP BY date")) return { results: [] };
-    if (sql.includes("COUNT(*) AS total")) return { total: 0, consistent: 0 };
+    if (sql.includes("ORDER BY created_at ASC")) return { created_at: Date.parse("2026-01-09T17:00:00Z") };
+    if (sql.includes("ORDER BY created_at DESC")) return { created_at: Date.parse("2026-08-05T16:59:00Z") };
+    if (sql.includes("FROM shot_daily_stats") && sql.includes("ORDER BY shot_date")) return { results: [] };
+    if (sql.includes("SUM(consistent)")) return { total: 0, consistent: 0 };
     throw new Error(`Unexpected query: ${sql}`);
   });
 
@@ -79,14 +75,19 @@ test("getShotsForDate limits results to 5 rows and returns pagination metadata",
   }));
   const env = mockEnv((sql, bindings, method) => {
     queryLog.push({ sql, bindings, method });
-    if (sql.includes("MIN(created_at)")) {
+    if (sql.includes("ORDER BY created_at ASC")) return { created_at: Date.parse("2026-06-30T17:00:00Z") };
+    if (sql.includes("ORDER BY created_at DESC") && sql.includes("LIMIT 1")) return { created_at: Date.parse("2026-08-05T16:59:00Z") };
+    if (sql.includes("FROM shot_daily_stats")) {
       return {
-        min_created_at: Date.parse("2026-06-30T17:00:00Z"),
-        max_created_at: Date.parse("2026-08-05T16:59:00Z"),
+        total: 31,
+        consistent: 12,
+        under20: 2,
+        bucket_20_25: 25,
+        bucket_25_28: 2,
+        bucket_28_30: 1,
+        over30: 1,
       };
     }
-    if (sql.includes("COUNT(CASE WHEN shot_ms >= 24000")) return { total: 31, consistent: 12 };
-    if (sql.trim().startsWith("SELECT COUNT(*) AS total")) return { total: 25 };
     if (sql.includes("SELECT id, created_at")) return { results: rows };
     throw new Error(`Unexpected query: ${sql}`);
   });
@@ -105,40 +106,47 @@ test("getShotsForDate limits results to 5 rows and returns pagination metadata",
   assert.equal(result.day_summary.consistency_percent, 39);
   assert.deepEqual(result.window, { min_date: "2026-07-01", max_date: "2026-08-05" });
   const rowQuery = queryLog.find((entry) => entry.sql.includes("SELECT id, created_at"));
-  const summaryQuery = queryLog.find((entry) => entry.sql.includes("COUNT(CASE WHEN shot_ms >= 24000"));
+  const summaryQuery = queryLog.find((entry) => entry.sql.includes("FROM shot_daily_stats"));
   assert.match(rowQuery.sql, /shot_ms >= 20000 AND shot_ms < 25000/);
   assert.match(rowQuery.sql, /LIMIT \? OFFSET \?/);
   assert.deepEqual(rowQuery.bindings.slice(-2), [5, 5]);
-  assert.match(summaryQuery.sql, /shot_ms >= 24000 AND shot_ms <= 27000/);
+  assert.deepEqual(summaryQuery.bindings, ["2026-07-01"]);
+});
+
+test("daily shot log falls back safely before the aggregate migration exists", async () => {
+  const env = mockEnv((sql) => {
+    if (sql.includes("shot_daily_stats")) throw new Error("D1_ERROR: no such table: shot_daily_stats");
+    if (sql.includes("COALESCE(SUM(shot_ms)")) {
+      return { total: 2, sum_ms: 49_000, under20: 0, bucket_20_25: 1, bucket_25_28: 1, bucket_28_30: 0, over30: 0, consistent: 2 };
+    }
+    if (sql.includes("SELECT id, created_at")) return { results: [] };
+    throw new Error(`Unexpected query: ${sql}`);
+  });
+
+  const result = await getShotsForDate(env, {
+    date: "2026-08-05",
+    now: NOW,
+    bounds: { minDate: "2026-01-10", maxDate: "2026-08-05" },
+  });
+
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.day_summary, { total: 2, consistent: 2, consistency_percent: 100 });
 });
 
 test("getShotAnalysis aggregates all D1 history while keeping 30-day consistency", async () => {
   const env = mockEnv((sql) => {
-    if (sql.includes("MIN(created_at)")) {
-      return {
-        min_created_at: Date.parse("2026-01-09T17:00:00Z"),
-        max_created_at: Date.parse("2026-08-05T16:59:00Z"),
-      };
+    if (sql.includes("ORDER BY created_at ASC") && sql.includes("LIMIT 1")) return { created_at: Date.parse("2026-01-09T17:00:00Z") };
+    if (sql.includes("ORDER BY created_at DESC")) return { created_at: Date.parse("2026-08-05T16:59:00Z") };
+    if (sql.includes("FROM shot_daily_stats") && sql.includes("ORDER BY shot_date")) {
+      return { results: [
+        { date: "2026-01-10", count: 10, sum_ms: 250_000, under20: 1, bucket_20_25: 2, bucket_25_28: 4, bucket_28_30: 2, over30: 1, consistent: 4 },
+        { date: "2026-08-05", count: 90, sum_ms: 2_300_000, under20: 9, bucket_20_25: 18, bucket_25_28: 36, bucket_28_30: 18, over30: 9, consistent: 31 },
+      ] };
     }
-    if (sql.includes("AVG(shot_ms)") && sql.includes("AS under20")) {
-      return {
-        total: 100,
-        average_ms: 25_500,
-        under20: 10,
-        "20to25": 20,
-        "25to28": 40,
-        "28to30": 20,
-        over30: 10,
-        consistent: 35,
-      };
+    if (sql.includes("SELECT id, created_at, shot_ms")) {
+      return { results: [{ id: "shot-1", created_at: Date.parse("2026-01-10T03:00:00Z"), shot_ms: 25_000 }] };
     }
-    if (sql.includes("GROUP BY date")) {
-      return { results: [{ date: "2026-01-10", count: 10, average_ms: 25_000, consistent: 4 }] };
-    }
-    if (sql.includes("SELECT created_at, shot_ms")) {
-      return { results: [{ created_at: Date.parse("2026-01-10T03:00:00Z"), shot_ms: 25_000 }] };
-    }
-    if (sql.includes("COUNT(*) AS total")) return { total: 20, consistent: 10 };
+    if (sql.includes("SUM(consistent)")) return { total: 20, consistent: 10 };
     throw new Error(`Unexpected query: ${sql}`);
   });
 
@@ -148,7 +156,56 @@ test("getShotAnalysis aggregates all D1 history while keeping 30-day consistency
   assert.equal(result.consistency_percent, 35);
   assert.equal(result.consistency_30d_percent, 50);
   assert.equal(result.daily[0].consistency_percent, 40);
-  assert.deepEqual(result.shot_points, [{ created_at: Date.parse("2026-01-10T03:00:00Z"), shot_ms: 25_000 }]);
+  assert.equal(result.average_ms, 25_500);
+  assert.deepEqual(result.shot_points, [{ id: "shot-1", created_at: Date.parse("2026-01-10T03:00:00Z"), shot_ms: 25_000 }]);
+});
+
+test("shot bounds use two index-friendly ordered lookups", async () => {
+  const queries = [];
+  const env = mockEnv((sql) => {
+    queries.push(sql);
+    if (sql.includes("ASC")) return { created_at: Date.parse("2026-01-09T17:00:00Z") };
+    return { created_at: Date.parse("2026-08-05T16:59:00Z") };
+  });
+
+  const bounds = await getShotBounds(env, NOW);
+
+  assert.deepEqual(bounds, { minDate: "2026-01-10", maxDate: "2026-08-05" });
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((sql) => sql.includes("ORDER BY created_at") && sql.includes("LIMIT 1")));
+  assert.ok(queries.every((sql) => !sql.includes("MIN(") && !sql.includes("MAX(")));
+});
+
+test("aggregate and raw fallback analysis return the same exact result", async () => {
+  const bounds = { minDate: "2026-08-04", maxDate: "2026-08-05" };
+  const dailyRows = [
+    { date: "2026-08-04", count: 2, sum_ms: 49_000, under20: 0, bucket_20_25: 1, bucket_25_28: 1, bucket_28_30: 0, over30: 0, consistent: 1 },
+    { date: "2026-08-05", count: 3, sum_ms: 80_000, under20: 1, bucket_20_25: 0, bucket_25_28: 1, bucket_28_30: 0, over30: 1, consistent: 1 },
+  ];
+  const aggregateEnv = mockEnv((sql) => {
+    if (sql.includes("ORDER BY shot_date")) return { results: dailyRows };
+    if (sql.includes("SUM(consistent)")) return { total: 5, consistent: 2 };
+    throw new Error(`Unexpected aggregate query: ${sql}`);
+  });
+  const fallbackEnv = mockEnv((sql) => {
+    if (sql.includes("shot_daily_stats")) throw new Error("D1_ERROR: no such table: shot_daily_stats");
+    if (sql.includes("GROUP BY date")) {
+      return { results: dailyRows.map(({ date, count, sum_ms, consistent }) => ({ date, count, sum_ms, consistent })) };
+    }
+    if (sql.includes("SUM(shot_ms)")) {
+      return { total: 5, sum_ms: 129_000, under20: 1, bucket_20_25: 1, bucket_25_28: 2, bucket_28_30: 0, over30: 1, consistent: 2 };
+    }
+    if (sql.includes("COUNT(*) AS total")) return { total: 5, consistent: 2 };
+    throw new Error(`Unexpected fallback query: ${sql}`);
+  });
+  const options = { now: NOW, allHistory: true, bounds };
+
+  const aggregate = await getShotAnalysis(aggregateEnv, options);
+  const fallback = await getShotAnalysis(fallbackEnv, options);
+
+  assert.deepEqual(fallback, aggregate);
+  assert.equal(aggregate.average_ms, 25_800);
+  assert.deepEqual(aggregate.buckets, { under20: 1, "20to25": 1, "25to28": 2, "28to30": 0, over30: 1 });
 });
 
 function mockEnv(handler) {

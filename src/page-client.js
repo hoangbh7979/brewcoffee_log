@@ -10,9 +10,10 @@ export function createRealtimeController(options = {}) {
     random = Math.random,
     connectionTimeoutMs = 6_500,
     heartbeatIntervalMs = 20_000,
-    pollIntervalMs = 15_000,
+    pollIntervalMs = 60_000,
     retryInitialMs = 500,
     retryMaxMs = 8_000,
+    refreshOnStart = true,
   } = options;
 
   if (typeof socketFactory !== "function") {
@@ -56,18 +57,18 @@ export function createRealtimeController(options = {}) {
     retryTimer = null;
   }
 
-  function refreshSafely() {
+  function refreshSafely(reason) {
     try {
-      const task = refresh();
+      const task = refresh(reason);
       if (task && typeof task.catch === "function") task.catch(() => {});
     } catch {}
   }
 
   function startFallbackPolling({ immediate = false } = {}) {
     if (pollTimer !== null) return;
-    if (immediate && isVisible()) refreshSafely();
+    if (immediate && isVisible()) refreshSafely("fallback");
     pollTimer = setRepeatingTimer(() => {
-      if (!stopped && isVisible()) refreshSafely();
+      if (!stopped && isVisible()) refreshSafely("fallback");
     }, pollIntervalMs);
   }
 
@@ -166,13 +167,13 @@ export function createRealtimeController(options = {}) {
     stopped = false;
     setStatus("Syncing", "polling");
     emit("start");
-    startFallbackPolling({ immediate: true });
+    startFallbackPolling({ immediate: refreshOnStart });
     connect();
   }
 
   function resume() {
     if (stopped) return;
-    if (isVisible()) refreshSafely();
+    if (isVisible()) refreshSafely("resume");
     connect();
   }
 
@@ -190,6 +191,186 @@ export function createRealtimeController(options = {}) {
   }
 
   return { start, resume, stop };
+}
+
+export function applyRealtimeShot(currentState = {}, message = {}) {
+  const id = String(message && message.id != null ? message.id : "").trim();
+  const createdAt = Number(message && message.created_at);
+  const shotMs = Number(message && message.shot_ms);
+  if (!id || !Number.isFinite(createdAt) || !Number.isFinite(shotMs) || shotMs <= 0) {
+    return { state: currentState, applied: false, reason: "invalid" };
+  }
+  const shiftedDate = new Date(createdAt + 7 * 60 * 60 * 1000);
+  if (!Number.isFinite(shiftedDate.getTime())) {
+    return { state: currentState, applied: false, reason: "invalid" };
+  }
+
+  const rows = Array.isArray(currentState.rows) ? currentState.rows : [];
+  const analysis = currentState.analysis && typeof currentState.analysis === "object"
+    ? currentState.analysis
+    : {};
+  const points = Array.isArray(analysis.shot_points) ? analysis.shot_points : [];
+  const realtimeIds = Array.isArray(currentState.realtimeIds) ? currentState.realtimeIds : [];
+  if (
+    realtimeIds.includes(id)
+    || rows.some((row) => String(row && row.id) === id)
+    || points.some((point) => String(point && point.id) === id)
+  ) {
+    return { state: currentState, applied: false, reason: "duplicate" };
+  }
+
+  const shotDate = shiftedDate.toISOString().slice(0, 10);
+  const bucket = shotMs < 20_000
+    ? "under20"
+    : shotMs < 25_000
+      ? "20to25"
+      : shotMs < 28_000
+        ? "25to28"
+        : shotMs <= 30_000
+          ? "28to30"
+          : "over30";
+  const consistent = shotMs >= 24_000 && shotMs <= 27_000 ? 1 : 0;
+  const percent = (part, total) => total > 0 ? Math.round(part * 100 / total) : 0;
+  const row = {
+    id,
+    created_at: createdAt,
+    shot_ms: shotMs,
+    brew_counter: message.brew_counter == null ? null : Number(message.brew_counter),
+    avg_ms: message.avg_ms == null ? null : Number(message.avg_ms),
+  };
+  const next = {
+    ...currentState,
+    realtimeIds: [id, ...realtimeIds.filter((knownId) => knownId !== id)].slice(0, 200),
+  };
+
+  let shotsChanged = false;
+  if (shotDate === currentState.date) {
+    shotsChanged = true;
+    const currentDay = currentState.daySummary || {};
+    const dayTotal = (Number(currentDay.total) || 0) + 1;
+    const dayConsistent = (Number(currentDay.consistent) || 0) + consistent;
+    next.daySummary = {
+      ...currentDay,
+      total: dayTotal,
+      consistent: dayConsistent,
+      consistency_percent: percent(dayConsistent, dayTotal),
+    };
+
+    const selectedFilter = currentState.filter || "all";
+    if (selectedFilter === "all" || selectedFilter === bucket) {
+      const total = (Number(currentState.total) || 0) + 1;
+      const currentPagination = currentState.pagination || {};
+      const pageSize = Math.max(1, Number(currentPagination.page_size) || 5);
+      const page = Math.max(1, Number(currentPagination.page) || Number(currentState.page) || 1);
+      next.total = total;
+      next.pagination = {
+        ...currentPagination,
+        page,
+        page_size: pageSize,
+        page_count: Math.max(1, Math.ceil(total / pageSize)),
+      };
+      if (page === 1) {
+        next.rows = [row, ...rows]
+          .sort((left, right) => Number(right.created_at) - Number(left.created_at) || String(right.id).localeCompare(String(left.id)))
+          .slice(0, pageSize);
+      }
+    }
+  }
+
+  const currentAnalysisWindow = currentState.analysisWindow || analysis.window || {};
+  const analysisWindow = { ...currentAnalysisWindow };
+  if (!analysisWindow.min_date || shotDate < analysisWindow.min_date) analysisWindow.min_date = shotDate;
+  if (!analysisWindow.max_date || shotDate > analysisWindow.max_date) analysisWindow.max_date = shotDate;
+  next.analysisWindow = analysisWindow;
+
+  const currentRange = currentState.analysisRange || analysis.range || {};
+  const analysisRange = { ...currentRange };
+  if (currentState.analysisAllHistory) {
+    if (!analysisRange.start_date || shotDate < analysisRange.start_date) analysisRange.start_date = shotDate;
+    if (!analysisRange.end_date || shotDate > analysisRange.end_date) analysisRange.end_date = shotDate;
+  }
+  next.analysisRange = analysisRange;
+  const inRange = Boolean(
+    analysisRange.start_date
+    && analysisRange.end_date
+    && shotDate >= analysisRange.start_date
+    && shotDate <= analysisRange.end_date
+  );
+
+  const latestDate = analysisWindow.max_date || shotDate;
+  const latestDay = Date.parse(latestDate + "T00:00:00Z");
+  const recentStart = Number.isFinite(latestDay)
+    ? new Date(latestDay - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : latestDate;
+  const inRecent = shotDate >= recentStart && shotDate <= latestDate;
+  let analysisChanged = inRange || inRecent;
+
+  if (analysisChanged) {
+    const nextAnalysis = {
+      ...analysis,
+      range: analysisRange,
+      window: analysisWindow,
+    };
+
+    if (inRange) {
+      const oldTotal = Number(analysis.total) || 0;
+      const oldSum = Number.isFinite(Number(analysis.sum_ms))
+        ? Number(analysis.sum_ms)
+        : (Number(analysis.average_ms) || 0) * oldTotal;
+      const total = oldTotal + 1;
+      const sumMs = oldSum + shotMs;
+      const totalConsistent = (Number(analysis.consistent) || 0) + consistent;
+      nextAnalysis.total = total;
+      nextAnalysis.sum_ms = sumMs;
+      nextAnalysis.average_ms = sumMs / total;
+      nextAnalysis.consistent = totalConsistent;
+      nextAnalysis.consistency_percent = percent(totalConsistent, total);
+      nextAnalysis.buckets = {
+        ...(analysis.buckets || {}),
+        [bucket]: (Number(analysis.buckets && analysis.buckets[bucket]) || 0) + 1,
+      };
+
+      const daily = Array.isArray(analysis.daily) ? analysis.daily : [];
+      const dailyIndex = daily.findIndex((entry) => entry && entry.date === shotDate);
+      const oldDay = dailyIndex >= 0 ? daily[dailyIndex] : { date: shotDate, count: 0, sum_ms: 0, consistent: 0 };
+      const oldDayCount = Number(oldDay.count) || 0;
+      const oldDaySum = Number.isFinite(Number(oldDay.sum_ms))
+        ? Number(oldDay.sum_ms)
+        : (Number(oldDay.average_ms) || 0) * oldDayCount;
+      const dayCount = oldDayCount + 1;
+      const daySum = oldDaySum + shotMs;
+      const dayConsistent = (Number(oldDay.consistent) || 0) + consistent;
+      const updatedDay = {
+        ...oldDay,
+        date: shotDate,
+        count: dayCount,
+        sum_ms: daySum,
+        consistent: dayConsistent,
+        average_ms: daySum / dayCount,
+        consistency_percent: percent(dayConsistent, dayCount),
+      };
+      const nextDaily = [...daily];
+      if (dailyIndex >= 0) nextDaily[dailyIndex] = updatedDay;
+      else nextDaily.push(updatedDay);
+      nextAnalysis.daily = nextDaily.sort((left, right) => String(left.date).localeCompare(String(right.date)));
+
+      if (Array.isArray(analysis.shot_points)) {
+        nextAnalysis.shot_points = [...analysis.shot_points, { id, created_at: createdAt, shot_ms: shotMs }]
+          .sort((left, right) => Number(left.created_at) - Number(right.created_at) || String(left.id).localeCompare(String(right.id)));
+      }
+    }
+
+    if (inRecent) {
+      const recent = analysis.recent_30d || {};
+      const recentTotal = (Number(recent.total) || 0) + 1;
+      const recentConsistent = (Number(recent.consistent) || 0) + consistent;
+      nextAnalysis.recent_30d = { total: recentTotal, consistent: recentConsistent };
+      nextAnalysis.consistency_30d_percent = percent(recentConsistent, recentTotal);
+    }
+    next.analysis = nextAnalysis;
+  }
+
+  return { state: next, applied: true, shotsChanged, analysisChanged, shotDate };
 }
 
 function clientApp() {
@@ -218,6 +399,7 @@ function clientApp() {
     analysisWindow: { min_date: "", max_date: "" },
     analysisAllHistory: true,
     chartMode: new URL(location.href).searchParams.get("view") === "daily" ? "daily" : "shots",
+    realtimeIds: [],
   };
 
   const elements = {
@@ -242,7 +424,8 @@ function clientApp() {
   let shotsRequest = 0;
   let analysisRequest = 0;
   let toastTimer = null;
-  let refreshTimer = null;
+  let needsAnalysisReconcile = false;
+  let needsShotReconcile = false;
 
   function escapeHtml(value) {
     return String(value == null ? "" : value)
@@ -782,16 +965,20 @@ function clientApp() {
     elements.livePill.dataset.state = stateName;
   }
 
-  function scheduleRealtimeRefresh(message) {
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => {
-      loadAnalysis({ silent: true });
-      if (shotDate(message && message.created_at) === state.date) {
-        loadShots({ silent: true });
-      } else {
-        showToast("A new extraction was added to " + formatDateLabel(shotDate(message && message.created_at)) + ".");
-      }
-    }, 450);
+  function applyRealtimeMessage(message) {
+    const result = applyRealtimeShot(state, message);
+    if (!result.applied) return;
+    Object.assign(state, result.state);
+    if (result.shotsChanged) {
+      renderShots();
+      updateSelectedMetrics();
+    } else {
+      showToast("A new extraction was added to " + formatDateLabel(result.shotDate) + ".");
+    }
+    if (result.analysisChanged) {
+      renderAnalysis();
+      renderHeroMetrics();
+    }
   }
 
   const realtime = createRealtimeController({
@@ -800,20 +987,36 @@ function clientApp() {
       return new WebSocket(protocol + "//" + location.host + "/api/ws");
     },
     setStatus: setLiveStatus,
-    refresh: () => {
+    refresh: (reason) => {
+      needsShotReconcile = false;
       loadShots({ silent: true });
-      loadAnalysis({ silent: true });
+      if (reason === "resume") {
+        needsAnalysisReconcile = false;
+        loadAnalysis({ silent: true });
+      }
     },
     onMessage: (event) => {
       if (event.data === "pong") return;
-      try { scheduleRealtimeRefresh(JSON.parse(event.data)); } catch {}
+      try { applyRealtimeMessage(JSON.parse(event.data)); } catch {}
     },
     onEvent: ({ type }) => {
       elements.livePill.dataset.event = type;
       elements.livePill.title = "Realtime: " + type;
+      if (["closed", "error", "timeout", "socket_factory_error"].includes(type)) {
+        needsAnalysisReconcile = true;
+        needsShotReconcile = true;
+      } else if (type === "open" && needsAnalysisReconcile && document.visibilityState === "visible") {
+        needsAnalysisReconcile = false;
+        if (needsShotReconcile) {
+          needsShotReconcile = false;
+          loadShots({ silent: true });
+        }
+        loadAnalysis({ silent: true });
+      }
     },
     timers: window,
     isVisible: () => document.visibilityState === "visible",
+    refreshOnStart: false,
   });
 
   if (!hydrateInitialState()) {
@@ -861,4 +1064,4 @@ function clientApp() {
 // Wrangler's server bundle annotates function names with __name(...). The
 // dashboard script is serialized into HTML, so provide the no-op browser-side
 // helper explicitly instead of depending on the server bundle's private scope.
-export const CLIENT_SCRIPT = `const __name = (target) => target;\nconst createRealtimeController = ${createRealtimeController.toString()};\n(${clientApp.toString()})();`;
+export const CLIENT_SCRIPT = `const __name = (target) => target;\nconst createRealtimeController = ${createRealtimeController.toString()};\nconst applyRealtimeShot = ${applyRealtimeShot.toString()};\n(${clientApp.toString()})();`;

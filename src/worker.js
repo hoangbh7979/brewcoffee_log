@@ -6,7 +6,7 @@ import { isAllowedOrigin } from "./origin.js";
 import { CLIENT_SCRIPT } from "./page-client.js";
 import { PAGE_STYLES } from "./page-styles.js";
 import { renderHomePage } from "./page.js";
-import { getShotAnalysis, getShotsForDate, listShots } from "./shots.js";
+import { getShotAnalysis, getShotBounds, getShotsForDate, listShots } from "./shots.js";
 import { handleWsIngest } from "./ws-ingest.js";
 
 export { ShotHub } from "./shot-hub.js";
@@ -58,17 +58,23 @@ async function routeRequest(request, env) {
     if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
     if (!env.DB) return new Response("DB not bound", { status: 500 });
     const view = url.searchParams.get("view") === "daily" ? "daily" : "shots";
+    const now = Date.now();
+    const bounds = await getShotBounds(env, now);
     const [shots, analysis] = await Promise.all([
       getShotsForDate(env, {
         date: url.searchParams.get("date") || "",
         bucket: url.searchParams.get("bucket") || "all",
         page: url.searchParams.get("page") || "",
+        now,
+        bounds,
       }),
       getShotAnalysis(env, {
         start: url.searchParams.get("analysis_start") || "",
         end: url.searchParams.get("analysis_end") || "",
         allHistory: url.searchParams.get("analysis_all") === "1",
         includePoints: view === "shots",
+        now,
+        bounds,
       }),
     ]);
     const nonce = crypto.randomUUID();

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createRealtimeController } from "../src/page-client.js";
+import { applyRealtimeShot, createRealtimeController } from "../src/page-client.js";
 
 class FakeTimers {
   constructor() {
@@ -85,6 +85,7 @@ function createHarness() {
   const statuses = [];
   const events = [];
   const messages = [];
+  const refreshReasons = [];
   let refreshes = 0;
   const controller = createRealtimeController({
     socketFactory: () => {
@@ -99,7 +100,7 @@ function createHarness() {
     pollIntervalMs: 3_000,
     setStatus: (text, state) => statuses.push({ text, state }),
     onEvent: ({ type }) => events.push(type),
-    refresh: () => { refreshes += 1; },
+    refresh: (reason) => { refreshes += 1; refreshReasons.push(reason); },
     onMessage: (event) => messages.push(event.data),
   });
   return {
@@ -108,6 +109,7 @@ function createHarness() {
     sockets,
     statuses,
     events,
+    refreshReasons,
     timers,
     refreshes: () => refreshes,
   };
@@ -126,6 +128,7 @@ test("realtime controller falls back to polling when a socket stays connecting",
 
   assert.equal(harness.sockets[0].closeCount, 1);
   assert.deepEqual(harness.statuses.at(-1), { text: "Syncing", state: "polling" });
+  assert.equal(harness.refreshes(), 1, "an active fallback timer prevents reconnect storms from querying again");
 
   harness.timers.runIntervals();
   assert.equal(harness.refreshes(), 2);
@@ -156,4 +159,91 @@ test("realtime controller stops polling once live and resumes it after disconnec
   harness.controller.stop();
   assert.equal(harness.timers.intervals.size, 0);
   assert.equal(harness.timers.timeouts.size, 0);
+});
+
+test("hidden tabs never poll and reconcile once when visible again", () => {
+  const timers = new FakeTimers();
+  const sockets = [];
+  const reasons = [];
+  let visible = false;
+  const controller = createRealtimeController({
+    socketFactory: () => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    timers,
+    isVisible: () => visible,
+    refreshOnStart: false,
+    refresh: (reason) => reasons.push(reason),
+  });
+
+  controller.start();
+  timers.runIntervals();
+  controller.resume();
+  assert.deepEqual(reasons, []);
+
+  visible = true;
+  controller.resume();
+  assert.deepEqual(reasons, ["resume"]);
+  assert.equal([...timers.intervals.values()][0].delay, 60_000);
+  controller.stop();
+});
+
+test("applyRealtimeShot updates exact table and analysis totals without a fetch", () => {
+  const state = {
+    date: "2026-08-05",
+    filter: "all",
+    rows: [
+      { id: "shot-2", created_at: Date.parse("2026-08-05T02:00:00Z"), shot_ms: 25_000 },
+      { id: "shot-1", created_at: Date.parse("2026-08-05T01:00:00Z"), shot_ms: 24_000 },
+    ],
+    total: 2,
+    page: 1,
+    pagination: { page: 1, page_size: 5, page_count: 1 },
+    daySummary: { total: 2, consistent: 2, consistency_percent: 100 },
+    analysisRange: { start_date: "2026-08-05", end_date: "2026-08-05" },
+    analysisWindow: { min_date: "2026-01-10", max_date: "2026-08-05" },
+    analysisAllHistory: false,
+    analysis: {
+      total: 2,
+      sum_ms: 49_000,
+      average_ms: 24_500,
+      consistent: 2,
+      consistency_percent: 100,
+      consistency_30d_percent: 100,
+      recent_30d: { total: 2, consistent: 2 },
+      buckets: { under20: 0, "20to25": 1, "25to28": 1, "28to30": 0, over30: 0 },
+      daily: [{ date: "2026-08-05", count: 2, sum_ms: 49_000, average_ms: 24_500, consistent: 2, consistency_percent: 100 }],
+      shot_points: [
+        { id: "shot-1", created_at: Date.parse("2026-08-05T01:00:00Z"), shot_ms: 24_000 },
+        { id: "shot-2", created_at: Date.parse("2026-08-05T02:00:00Z"), shot_ms: 25_000 },
+      ],
+    },
+  };
+  const message = {
+    id: "shot-3",
+    created_at: Date.parse("2026-08-05T03:00:00Z"),
+    shot_ms: 26_000,
+    brew_counter: 3,
+    avg_ms: 25_000,
+  };
+
+  const result = applyRealtimeShot(state, message);
+
+  assert.equal(result.applied, true);
+  assert.equal(result.shotsChanged, true);
+  assert.equal(result.analysisChanged, true);
+  assert.equal(result.state.total, 3);
+  assert.equal(result.state.rows[0].id, "shot-3");
+  assert.deepEqual(result.state.daySummary, { total: 3, consistent: 3, consistency_percent: 100 });
+  assert.equal(result.state.analysis.total, 3);
+  assert.equal(result.state.analysis.sum_ms, 75_000);
+  assert.equal(result.state.analysis.average_ms, 25_000);
+  assert.equal(result.state.analysis.buckets["25to28"], 2);
+  assert.deepEqual(result.state.analysis.recent_30d, { total: 3, consistent: 3 });
+  assert.equal(result.state.analysis.daily[0].average_ms, 25_000);
+  assert.equal(result.state.analysis.shot_points.at(-1).id, "shot-3");
+  assert.equal(applyRealtimeShot(result.state, message).reason, "duplicate");
+  assert.equal(state.total, 2, "the helper does not mutate its input state");
 });
